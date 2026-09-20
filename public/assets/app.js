@@ -266,10 +266,13 @@ class TelecomCanvasLayer extends L.Layer {
 
   drawDot(context, item) {
     const radius = item.highlighted ? item.radius + 1.15 : item.radius;
+    const dotColor = item.sites.length === 1
+      ? (radioColors[radioLetter(item.sites[0][7])] || "#2563eb")
+      : riskColors[item.risk];
     context.globalAlpha = state.areaBounds && !item.highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
     context.beginPath();
     context.arc(item.x, item.y, radius, 0, Math.PI * 2);
-    context.fillStyle = riskColors[item.risk];
+    context.fillStyle = dotColor;
     context.fill();
     if (item.highlighted || item.selected || this._map.getZoom() >= 14) {
       context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
