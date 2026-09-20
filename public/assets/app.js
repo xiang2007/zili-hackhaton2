@@ -591,7 +591,7 @@ function updateAreaSummary() {
   $("#area-tower-count").textContent = formatNumber(selectedSites.length);
   $("#area-size").textContent = `${formatNumber(areaKm2, areaKm2 < 10 ? 2 : 1)} km²`;
   $("#area-coverage").textContent = `${formatNumber(coveredKm2, coveredKm2 < 10 ? 2 : 1)} km²`;
-  $("#area-coverage-note").textContent = `${formatNumber(coveragePercent, 0)}% of the selection is within a highlighted tower's reported range. Overlaps are counted once.`;
+  $("#area-coverage-note").textContent = `${formatNumber(coveragePercent, 0)}% maximum combined coverage from all highlighted towers. Reported ranges are clipped to the selection and overlaps are counted once.`;
   $("#area-summary").hidden = false;
 }
 
