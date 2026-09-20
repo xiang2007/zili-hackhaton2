@@ -4,6 +4,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const formatNumber = (value, digits = 0) => Number(value).toLocaleString("en-MY", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const formatClusterCount = (value) => value >= 1000 ? `${formatNumber(value / 1000, value >= 10000 ? 0 : 1)}k` : formatNumber(value);
 const radioLetter = (value) => String(value || "?").trim().charAt(0).toUpperCase() || "?";
+const radioColors = { G: "#00a6a6", L: "#f59e0b", U: "#7c3aed" };
 const riskNames = ["Low", "Medium", "High"];
 const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
 const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
@@ -300,6 +301,9 @@ class TelecomCanvasLayer extends L.Layer {
 
   drawSite(context, item) {
     const size = item.highlighted ? item.radius + 1 : item.radius;
+    const radio = radioLetter(item.sites[0][7]);
+    const pinColor = radioColors[radio] || "#2563eb";
+    const pinTextColor = radio === "L" ? "#172423" : "#ffffff";
     const tipY = item.y;
     const middleY = tipY - size * 1.2;
     context.globalAlpha = state.areaBounds && !item.highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
@@ -310,17 +314,17 @@ class TelecomCanvasLayer extends L.Layer {
     context.bezierCurveTo(item.x + size * 0.55, tipY - size * 2.25, item.x + size, tipY - size * 1.85, item.x + size, middleY);
     context.bezierCurveTo(item.x + size, tipY - size * 0.75, item.x + size * 0.3, tipY - size * 0.35, item.x, tipY);
     context.closePath();
-    context.fillStyle = riskColors[item.risk];
+    context.fillStyle = pinColor;
     context.fill();
     context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.95)" : "rgba(14,31,28,.58)";
     context.lineWidth = item.selected ? 2 : item.highlighted ? 1.3 : 0.65;
     context.stroke();
     context.beginPath();
     context.arc(item.x, middleY, Math.max(1.1, size * 0.3), 0, Math.PI * 2);
-    context.fillStyle = "rgba(255,255,255,.94)";
+    context.fillStyle = pinTextColor;
     context.fill();
     context.globalAlpha = 1;
-    context.fillStyle = "#163f37";
+    context.fillStyle = pinTextColor;
     context.font = `900 ${Math.max(7, Math.min(10, size * 0.9))}px Inter, system-ui, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
@@ -894,7 +898,7 @@ function renderLegend() {
   } else {
     $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
   }
-  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Groups appear on zoom · pins at the 300 m scale</span></div>`);
+  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="radio-legend"><span><i style="background:${radioColors.G}">G</i>GSM</span><span><i style="background:${radioColors.L};color:#172423">L</i>LTE</span><span><i style="background:${radioColors.U}">U</i>UMTS</span></div><div class="cluster-legend"><i>12</i><span>Dots above 500 m · groups at 500 m · pins from 300 m</span></div>`);
 }
 
 function setPlacementMode(active) {
