@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const formatNumber = (value, digits = 0) => Number(value).toLocaleString("en-MY", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const formatClusterCount = (value) => value >= 1000 ? `${formatNumber(value / 1000, value >= 10000 ? 0 : 1)}k` : formatNumber(value);
 const riskNames = ["Low", "Medium", "High"];
 const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
 const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
@@ -165,43 +166,135 @@ class TelecomCanvasLayer extends L.Layer {
     L.DomUtil.setPosition(this._canvas, topLeft);
     const context = this._canvas.getContext("2d");
     context.scale(ratio, ratio);
-    const radius = this._map.getZoom() >= 13 ? 2.25 : 1.55;
-    for (const site of state.sites) {
-      const point = this._map.latLngToContainerPoint([site[2], site[1]]);
-      if (point.x < -4 || point.y < -4 || point.x > size.x + 4 || point.y > size.y + 4) continue;
-      const highlighted = state.areaBounds?.contains([site[2], site[1]]) ?? false;
-      const selected = state.selectedSite === site;
-      const risk = riskForTemp(effectiveSiteTemp(site));
-      context.globalAlpha = state.areaBounds && !highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
-      context.beginPath();
-      context.arc(point.x, point.y, highlighted ? radius + 1.15 : radius, 0, Math.PI * 2);
-      context.fillStyle = riskColors[risk];
-      context.fill();
-      if (highlighted || selected || this._map.getZoom() >= 14) {
-        context.strokeStyle = selected ? "#ffffff" : highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
-        context.lineWidth = selected ? 2.4 : highlighted ? 1.2 : 0.6;
-        context.stroke();
-      }
-      if (selected) {
-        context.globalAlpha = 1;
-        context.beginPath();
-        context.arc(point.x, point.y, radius + 5, 0, Math.PI * 2);
-        context.strokeStyle = "#163f37";
-        context.lineWidth = 2;
-        context.stroke();
-      }
+    this._renderItems = this.clusterVisibleSites(size);
+    for (const item of this._renderItems) {
+      if (item.sites.length > 1) this.drawCluster(context, item);
+      else this.drawSite(context, item);
     }
     context.globalAlpha = 1;
   }
 
-  nearestAt(containerPoint, radius = 8) {
-    let best = null;
-    let bestDistance = radius * radius;
+  clusterVisibleSites(size) {
+    const zoom = this._map.getZoom();
+    const cellSize = Math.max(30, 58 - (zoom - 9) * 4);
+    const spatialBins = new Map();
+    const clusters = [];
     for (const site of state.sites) {
       const point = this._map.latLngToContainerPoint([site[2], site[1]]);
-      const distance = (point.x - containerPoint.x) ** 2 + (point.y - containerPoint.y) ** 2;
-      if (distance < bestDistance) {
-        best = site;
+      if (point.x < -cellSize || point.y < -cellSize || point.x > size.x + cellSize || point.y > size.y + cellSize) continue;
+      const highlighted = state.areaBounds?.contains([site[2], site[1]]) ?? false;
+      const selected = state.selectedSite === site;
+      const risk = riskForTemp(effectiveSiteTemp(site));
+      const xBin = Math.floor(point.x / cellSize);
+      const yBin = Math.floor(point.y / cellSize);
+      let cluster = null;
+      let closestDistance = cellSize ** 2;
+      if (!selected) {
+        for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
+          for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
+            const nearby = spatialBins.get(`${highlighted ? "in" : "out"}:${xBin + xOffset}:${yBin + yOffset}`) || [];
+            for (const candidate of nearby) {
+              const candidateX = candidate.x / candidate.sites.length;
+              const candidateY = candidate.y / candidate.sites.length;
+              const distance = (candidateX - point.x) ** 2 + (candidateY - point.y) ** 2;
+              if (distance <= closestDistance) {
+                cluster = candidate;
+                closestDistance = distance;
+              }
+            }
+          }
+        }
+      }
+      if (!cluster) {
+        cluster = {
+          sites: [],
+          x: 0,
+          y: 0,
+          lat: 0,
+          lon: 0,
+          highlighted,
+          selected,
+          riskCounts: [0, 0, 0],
+          south: site[2],
+          north: site[2],
+          west: site[1],
+          east: site[1],
+        };
+        clusters.push(cluster);
+        const key = selected ? `selected:${site[0]}` : `${highlighted ? "in" : "out"}:${xBin}:${yBin}`;
+        if (!spatialBins.has(key)) spatialBins.set(key, []);
+        spatialBins.get(key).push(cluster);
+      }
+      cluster.sites.push(site);
+      cluster.x += point.x;
+      cluster.y += point.y;
+      cluster.lat += site[2];
+      cluster.lon += site[1];
+      cluster.riskCounts[risk] += 1;
+      cluster.south = Math.min(cluster.south, site[2]);
+      cluster.north = Math.max(cluster.north, site[2]);
+      cluster.west = Math.min(cluster.west, site[1]);
+      cluster.east = Math.max(cluster.east, site[1]);
+    }
+    return clusters.map((cluster) => {
+      const count = cluster.sites.length;
+      cluster.x /= count;
+      cluster.y /= count;
+      cluster.lat /= count;
+      cluster.lon /= count;
+      cluster.risk = cluster.riskCounts.lastIndexOf(Math.max(...cluster.riskCounts));
+      cluster.radius = count > 1 ? clamp(10 + Math.log10(count) * 4.5, 12, Math.min(24, cellSize / 2 - 2)) : zoom >= 13 ? 2.25 : 1.55;
+      return cluster;
+    });
+  }
+
+  drawSite(context, item) {
+    const radius = item.highlighted ? item.radius + 1.15 : item.radius;
+    context.globalAlpha = state.areaBounds && !item.highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
+    context.beginPath();
+    context.arc(item.x, item.y, radius, 0, Math.PI * 2);
+    context.fillStyle = riskColors[item.risk];
+    context.fill();
+    if (item.highlighted || item.selected || this._map.getZoom() >= 14) {
+      context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
+      context.lineWidth = item.selected ? 2.4 : item.highlighted ? 1.2 : 0.6;
+      context.stroke();
+    }
+    if (item.selected) {
+      context.globalAlpha = 1;
+      context.beginPath();
+      context.arc(item.x, item.y, radius + 5, 0, Math.PI * 2);
+      context.strokeStyle = "#163f37";
+      context.lineWidth = 2;
+      context.stroke();
+    }
+  }
+
+  drawCluster(context, item) {
+    context.globalAlpha = state.areaBounds && !item.highlighted ? 0.25 : 0.96;
+    context.beginPath();
+    context.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
+    context.fillStyle = riskColors[item.risk];
+    context.fill();
+    context.strokeStyle = item.highlighted ? "#ffffff" : "rgba(255,255,255,.92)";
+    context.lineWidth = item.highlighted ? 3 : 2;
+    context.stroke();
+    context.globalAlpha = state.areaBounds && !item.highlighted ? 0.48 : 1;
+    context.fillStyle = item.risk === 1 ? "#172423" : "#ffffff";
+    context.font = `800 ${item.sites.length >= 1000 ? 9 : item.sites.length >= 100 ? 10 : 11}px Inter, system-ui, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(formatClusterCount(item.sites.length), item.x, item.y + 0.5);
+  }
+
+  nearestAt(containerPoint, radius = 8) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const item of this._renderItems || []) {
+      const distance = (item.x - containerPoint.x) ** 2 + (item.y - containerPoint.y) ** 2;
+      const hitRadius = item.sites.length > 1 ? item.radius + 4 : radius;
+      if (distance <= hitRadius ** 2 && distance < bestDistance) {
+        best = item;
         bestDistance = distance;
       }
     }
@@ -268,8 +361,26 @@ function handleMapClick(event) {
     return;
   }
   if (!map.hasLayer(siteLayer)) return;
-  const site = siteLayer.nearestAt(event.containerPoint, map.getZoom() >= 13 ? 10 : 7);
-  if (site) inspectSite(site);
+  const item = siteLayer.nearestAt(event.containerPoint, map.getZoom() >= 13 ? 10 : 7);
+  if (!item) return;
+  if (item.sites.length > 1) {
+    if (map.getZoom() < map.getMaxZoom()) zoomIntoCluster(item);
+    else inspectCluster(item);
+    return;
+  }
+  inspectSite(item.sites[0]);
+}
+
+function zoomIntoCluster(cluster) {
+  clearSelectedSite();
+  $("#inspect-card").hidden = true;
+  const nextZoom = Math.min(map.getMaxZoom(), map.getZoom() + 3);
+  const hasExtent = cluster.north - cluster.south > 0.000001 || cluster.east - cluster.west > 0.000001;
+  if (hasExtent) {
+    map.fitBounds([[cluster.south, cluster.west], [cluster.north, cluster.east]], { padding: [70, 70], maxZoom: nextZoom });
+  } else {
+    map.setView([cluster.lat, cluster.lon], nextZoom);
+  }
 }
 
 function setAreaSelectionMode(active) {
@@ -374,6 +485,7 @@ function buildCoverageIndex() {
 
 function estimateCoveredAreaKm2(bounds, selectedSites, areaKm2) {
   if (!selectedSites.length || areaKm2 <= 0) return 0;
+  if (!coverageIndex) buildCoverageIndex();
   const selectedIds = new Set(selectedSites.map((site) => site[0]));
   const widthKm = haversine(bounds.getCenter().lat, bounds.getWest(), bounds.getCenter().lat, bounds.getEast());
   const heightKm = haversine(bounds.getSouth(), bounds.getCenter().lng, bounds.getNorth(), bounds.getCenter().lng);
@@ -452,6 +564,23 @@ function inspectSite(site) {
   $("#inspect-card").hidden = false;
 }
 
+function inspectCluster(cluster) {
+  clearSelectedSite();
+  const radios = [...new Set(cluster.sites.map((site) => site[7]))].sort();
+  const largestRange = Math.max(...cluster.sites.map((site) => site[6])) / 1000;
+  $("#inspect-type").textContent = "Grouped telecom towers";
+  $("#inspect-title").textContent = `${formatNumber(cluster.sites.length)} co-located records`;
+  $("#inspect-details").innerHTML = `<div class="inspect-grid">
+    <div><span>Low risk</span><strong>${formatNumber(cluster.riskCounts[0])}</strong></div>
+    <div><span>Medium risk</span><strong>${formatNumber(cluster.riskCounts[1])}</strong></div>
+    <div><span>High risk</span><strong>${formatNumber(cluster.riskCounts[2])}</strong></div>
+    <div><span>Radio technologies</span><strong>${radios.join(" · ")}</strong></div>
+    <div><span>Largest reported range</span><strong>${formatNumber(largestRange, 1)} km</strong></div>
+    <div><span>Group centre</span><strong>${cluster.lat.toFixed(4)}, ${cluster.lon.toFixed(4)}</strong></div>
+  </div>`;
+  $("#inspect-card").hidden = false;
+}
+
 function clearSelectedSite() {
   state.selectedSite = null;
   if (selectedCoverageLayer) {
@@ -523,6 +652,7 @@ function renderLegend() {
   } else {
     $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
   }
+  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Numbered circles group nearby towers</span></div>`);
 }
 
 function setPlacementMode(active) {
@@ -730,7 +860,6 @@ async function initialise() {
     if (!siteResponse.ok || !gridResponse.ok || !summaryResponse.ok || !surfaceResponse.ok) throw new Error("A dashboard data file could not be loaded.");
     const siteData = await siteResponse.json();
     state.sites = siteData.rows;
-    buildCoverageIndex();
     state.grid = await gridResponse.json();
     state.summary = await summaryResponse.json();
     state.surfaceMatrix = await surfaceResponse.json();
