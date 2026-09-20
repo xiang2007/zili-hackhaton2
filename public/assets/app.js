@@ -182,6 +182,7 @@ class TelecomCanvasLayer extends L.Layer {
   clusterVisibleSites(size) {
     const zoom = this._map.getZoom();
     const shouldCluster = zoom >= 11 && zoom < pinMinimumZoom;
+    const largestCoverage = state.areaBounds ? largestCoverageSite(state.areaBounds) : null;
     const cellSize = Math.max(30, 58 - (zoom - 9) * 4);
     const spatialBins = new Map();
     const clusters = [];
@@ -190,12 +191,13 @@ class TelecomCanvasLayer extends L.Layer {
       if (point.x < -cellSize || point.y < -cellSize || point.x > size.x + cellSize || point.y > size.y + cellSize) continue;
       const highlighted = state.areaBounds?.contains([site[2], site[1]]) ?? false;
       const selected = state.selectedSite === site;
+      const isLargestCoverage = site === largestCoverage;
       const risk = riskForTemp(effectiveSiteTemp(site));
       const xBin = Math.floor(point.x / cellSize);
       const yBin = Math.floor(point.y / cellSize);
       let cluster = null;
       let closestDistance = cellSize ** 2;
-      if (shouldCluster && !selected) {
+      if (shouldCluster && !selected && !isLargestCoverage) {
         for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
           for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
             const nearby = spatialBins.get(`${highlighted ? "in" : "out"}:${xBin + xOffset}:${yBin + yOffset}`) || [];
@@ -220,6 +222,7 @@ class TelecomCanvasLayer extends L.Layer {
           lon: 0,
           highlighted,
           selected,
+          largestCoverage: isLargestCoverage,
           riskCounts: [0, 0, 0],
           south: site[2],
           north: site[2],
@@ -227,13 +230,14 @@ class TelecomCanvasLayer extends L.Layer {
           east: site[1],
         };
         clusters.push(cluster);
-        if (shouldCluster) {
+        if (shouldCluster && !selected && !isLargestCoverage) {
           const key = selected ? `selected:${site[0]}` : `${highlighted ? "in" : "out"}:${xBin}:${yBin}`;
           if (!spatialBins.has(key)) spatialBins.set(key, []);
           spatialBins.get(key).push(cluster);
         }
       }
       cluster.sites.push(site);
+      cluster.largestCoverage ||= isLargestCoverage;
       cluster.x += point.x;
       cluster.y += point.y;
       cluster.lat += site[2];
@@ -278,6 +282,19 @@ class TelecomCanvasLayer extends L.Layer {
       context.lineWidth = 2;
       context.stroke();
     }
+    if (item.largestCoverage) {
+      context.globalAlpha = 1;
+      context.beginPath();
+      context.arc(item.x, item.y, radius + 6, 0, Math.PI * 2);
+      context.strokeStyle = "#163f37";
+      context.lineWidth = 2.6;
+      context.stroke();
+      context.beginPath();
+      context.arc(item.x, item.y, radius + 3.5, 0, Math.PI * 2);
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 1.2;
+      context.stroke();
+    }
   }
 
   drawSite(context, item) {
@@ -313,6 +330,19 @@ class TelecomCanvasLayer extends L.Layer {
       context.arc(item.x, middleY, size + 4, 0, Math.PI * 2);
       context.strokeStyle = "#163f37";
       context.lineWidth = 2;
+      context.stroke();
+    }
+    if (item.largestCoverage) {
+      context.globalAlpha = 1;
+      context.beginPath();
+      context.arc(item.x, middleY, size + 6, 0, Math.PI * 2);
+      context.strokeStyle = "#163f37";
+      context.lineWidth = 2.6;
+      context.stroke();
+      context.beginPath();
+      context.arc(item.x, middleY, size + 3.5, 0, Math.PI * 2);
+      context.strokeStyle = "#ffffff";
+      context.lineWidth = 1.2;
       context.stroke();
     }
   }
