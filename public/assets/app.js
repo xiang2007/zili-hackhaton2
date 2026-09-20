@@ -48,6 +48,7 @@ let areaSelectionStart;
 let areaSelectionPointerId = null;
 let coverageIndex;
 let selectedCoverageLayer;
+let selectedSignalLayer;
 
 const coverageBinSize = 0.02;
 const pinMinimumZoom = 15; // Approximately the 300 m Leaflet scale in Klang Valley.
@@ -461,6 +462,9 @@ function initialiseMap() {
   map.createPane("selectedCoveragePane");
   map.getPane("selectedCoveragePane").style.zIndex = 375;
   map.getPane("selectedCoveragePane").style.pointerEvents = "none";
+  map.createPane("selectedSignalPane");
+  map.getPane("selectedSignalPane").style.zIndex = 480;
+  map.getPane("selectedSignalPane").style.pointerEvents = "none";
   map.createPane("coverageAreaPane");
   map.getPane("coverageAreaPane").style.zIndex = 370;
   map.getPane("coverageAreaPane").style.pointerEvents = "none";
@@ -491,6 +495,7 @@ function initialiseMap() {
   highlightCoverageLayer = new HighlightCoverageCanvasLayer().addTo(map);
   proposalLayer = L.layerGroup().addTo(map);
   map.on("click", handleMapClick);
+  map.on("zoomend", refreshSelectedSignal);
   const mapContainer = map.getContainer();
   mapContainer.addEventListener("pointerdown", startAreaSelection);
   mapContainer.addEventListener("pointermove", updateAreaSelection);
@@ -611,6 +616,7 @@ function finishAreaSelection(event) {
   }
   areaSelectionLayer.setBounds(bounds);
   state.areaBounds = bounds;
+  clearSelectedSite();
   updateAreaSummary();
   siteLayer.redraw();
   highlightCoverageLayer?.redraw();
@@ -641,6 +647,7 @@ function clearAreaSelection() {
     areaSelectionLayer = null;
   }
   state.areaBounds = null;
+  refreshSelectedSignal();
   $("#area-summary").hidden = true;
   siteLayer?.redraw();
   highlightCoverageLayer?.redraw();
@@ -745,6 +752,7 @@ function inspectSite(site) {
     dashArray: "6 5",
     interactive: false,
   }).addTo(map);
+  refreshSelectedSignal();
   siteLayer.redraw();
   const scenarioTemp = effectiveSiteTemp(site);
   $("#inspect-type").textContent = "Selected telecom tower";
@@ -759,6 +767,37 @@ function inspectSite(site) {
     <div><span>Coordinates</span><strong>${site[2].toFixed(4)}, ${site[1].toFixed(4)}</strong></div>
   </div>`;
   $("#inspect-card").hidden = false;
+}
+
+function refreshSelectedSignal() {
+  if (selectedSignalLayer) {
+    selectedSignalLayer.remove();
+    selectedSignalLayer = null;
+  }
+  if (!map) return;
+  const site = state.selectedSite || (state.areaBounds ? largestCoverageSite(state.areaBounds) : null);
+  if (!site) return;
+  const centre = map.latLngToContainerPoint([site[2], site[1]]);
+  const boundary = map.latLngToContainerPoint([site[2] + (Math.max(0, Number(site[6]) || 0) / 1000) / 110.574, site[1]]);
+  // Reported cellular ranges can span tens of kilometres. Keep the visual
+  // signal cue local to the tower instead of letting it fill the entire map.
+  const coverageRadius = Math.abs(boundary.y - centre.y);
+  const radius = clamp(coverageRadius, 22, 42);
+  const diameter = Math.ceil(radius * 2);
+  const signalScale = Math.max(2, radius / 6);
+  const pinOffset = map.getZoom() >= pinMinimumZoom ? 10 : 0;
+  selectedSignalLayer = L.marker([site[2], site[1]], {
+    pane: "selectedSignalPane",
+    interactive: false,
+    keyboard: false,
+    icon: L.divIcon({
+      className: "tower-signal-marker",
+      iconSize: [diameter, diameter],
+      // Align the pulse centre with the pin's inner circle, not its pointed tip.
+      iconAnchor: [radius, radius + pinOffset],
+      html: `<span class="tower-signal-wave" style="--signal-scale:${signalScale}"><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-core"></span></span>`,
+    }),
+  }).addTo(map);
 }
 
 function inspectCluster(cluster) {
@@ -784,6 +823,11 @@ function clearSelectedSite() {
     selectedCoverageLayer.remove();
     selectedCoverageLayer = null;
   }
+  if (selectedSignalLayer) {
+    selectedSignalLayer.remove();
+    selectedSignalLayer = null;
+  }
+  refreshSelectedSignal();
   siteLayer?.redraw();
 }
 
