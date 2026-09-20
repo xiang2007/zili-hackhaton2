@@ -344,6 +344,15 @@ class TelecomCanvasLayer extends L.Layer {
   }
 }
 
+function largestCoverageSite(bounds) {
+  let largestSite = null;
+  for (const site of state.sites) {
+    if (!bounds.contains([site[2], site[1]])) continue;
+    if (!largestSite || Number(site[6]) > Number(largestSite[6])) largestSite = site;
+  }
+  return largestSite;
+}
+
 class HighlightCoverageCanvasLayer extends L.Layer {
   onAdd(targetMap) {
     this._map = targetMap;
@@ -381,28 +390,29 @@ class HighlightCoverageCanvasLayer extends L.Layer {
     const right = Math.max(southWest.x, northEast.x);
     const top = Math.min(southWest.y, northEast.y);
     const bottom = Math.max(southWest.y, northEast.y);
+    const site = largestCoverageSite(bounds);
+    if (!site) return;
+    const center = this._map.latLngToContainerPoint([site[2], site[1]]);
+    const radiusKm = Math.max(0, Number(site[6]) || 0) / 1000;
+    const northPoint = this._map.latLngToContainerPoint([site[2] + radiusKm / 110.574, site[1]]);
+    const radius = Math.max(1, Math.abs(center.y - northPoint.y));
+    const risk = riskForTemp(effectiveSiteTemp(site));
+    const [red, green, blue] = hexToRgb(riskColors[risk]);
     context.save();
     context.beginPath();
     context.rect(left, top, right - left, bottom - top);
     context.clip();
-
-    for (const site of state.sites) {
-      if (!bounds.contains([site[2], site[1]])) continue;
-      const center = this._map.latLngToContainerPoint([site[2], site[1]]);
-      const radiusKm = Math.max(0, Number(site[6]) || 0) / 1000;
-      const northPoint = this._map.latLngToContainerPoint([site[2] + radiusKm / 110.574, site[1]]);
-      const radius = Math.max(1, Math.abs(center.y - northPoint.y));
-      const risk = riskForTemp(effectiveSiteTemp(site));
-      const [red, green, blue] = hexToRgb(riskColors[risk]);
-      context.beginPath();
-      context.arc(center.x, center.y, radius, 0, Math.PI * 2);
-      context.fillStyle = `rgba(${red},${green},${blue},.08)`;
-      context.fill();
-      context.strokeStyle = "rgba(22,63,55,.28)";
-      context.lineWidth = 1;
-      context.stroke();
-    }
+    context.beginPath();
+    context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    context.fillStyle = `rgba(${red},${green},${blue},.14)`;
+    context.fill();
     context.restore();
+    context.beginPath();
+    context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+    context.strokeStyle = riskColors[risk];
+    context.lineWidth = 2;
+    context.setLineDash([7, 5]);
+    context.stroke();
   }
 }
 
@@ -654,13 +664,16 @@ function estimateCoveredAreaKm2(bounds, selectedSites, areaKm2) {
 function updateAreaSummary() {
   if (!state.areaBounds) return;
   const selectedSites = state.sites.filter((site) => state.areaBounds.contains([site[2], site[1]]));
+  const largestSite = largestCoverageSite(state.areaBounds);
   const areaKm2 = rectangleAreaKm2(state.areaBounds);
-  const coveredKm2 = estimateCoveredAreaKm2(state.areaBounds, selectedSites, areaKm2);
+  const coveredKm2 = estimateCoveredAreaKm2(state.areaBounds, largestSite ? [largestSite] : [], areaKm2);
   const coveragePercent = areaKm2 ? coveredKm2 / areaKm2 * 100 : 0;
   $("#area-tower-count").textContent = formatNumber(selectedSites.length);
   $("#area-size").textContent = `${formatNumber(areaKm2, areaKm2 < 10 ? 2 : 1)} km²`;
   $("#area-coverage").textContent = `${formatNumber(coveredKm2, coveredKm2 < 10 ? 2 : 1)} km²`;
-  $("#area-coverage-note").textContent = `${formatNumber(coveragePercent, 0)}% maximum combined coverage from all highlighted towers. Reported ranges are clipped to the selection and overlaps are counted once.`;
+  $("#area-coverage-note").textContent = largestSite
+    ? `${formatNumber(coveragePercent, 0)}% of the selected area is covered by ${largestSite[0]}, the highlighted tower with the largest reported range (${formatNumber(largestSite[6] / 1000, 1)} km). Coverage is clipped to the selection.`
+    : "No telecom towers are inside the selected area.";
   $("#area-summary").hidden = false;
 }
 
