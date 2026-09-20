@@ -5,7 +5,6 @@ require('./src/env');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { DatabaseSync } = require('node:sqlite');
 const express = require('express');
 const geo = require('./src/geo');
 const opencellid = require('./src/opencellid');
@@ -23,28 +22,62 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 const PASSWORD_ITERATIONS = 310000;
 
 fs.mkdirSync(path.dirname(AUTH_DB_PATH), { recursive: true });
-const authDb = new DatabaseSync(AUTH_DB_PATH);
-fs.chmodSync(AUTH_DB_PATH, 0o600);
-authDb.exec(`
-  PRAGMA journal_mode = WAL;
-  PRAGMA foreign_keys = ON;
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-    password_hash TEXT NOT NULL,
-    password_salt TEXT NOT NULL,
-    password_iterations INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE TABLE IF NOT EXISTS sessions (
-    id INTEGER PRIMARY KEY,
-    token_hash TEXT NOT NULL UNIQUE,
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    expires_at INTEGER NOT NULL,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-  );
-  CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
-`);
+let authDb = null;
+let jsonAuth = null;
+let jsonAuthPath = null;
+try {
+  const { DatabaseSync } = require('node:sqlite');
+  authDb = new DatabaseSync(AUTH_DB_PATH);
+  fs.chmodSync(AUTH_DB_PATH, 0o600);
+  authDb.exec(`
+    PRAGMA journal_mode = WAL;
+    PRAGMA foreign_keys = ON;
+    CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NOT NULL,
+      password_salt TEXT NOT NULL,
+      password_iterations INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id INTEGER PRIMARY KEY,
+      token_hash TEXT NOT NULL UNIQUE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS sessions_expires_at ON sessions(expires_at);
+  `);
+} catch (error) {
+  jsonAuthPath = `${AUTH_DB_PATH}.json`;
+  try {
+    jsonAuth = JSON.parse(fs.readFileSync(jsonAuthPath, 'utf8'));
+  } catch (readError) {
+    jsonAuth = { nextUserId: 1, users: [], sessions: [] };
+  }
+  jsonAuth.nextUserId = Number(jsonAuth.nextUserId) || 1;
+  jsonAuth.users = Array.isArray(jsonAuth.users) ? jsonAuth.users : [];
+  jsonAuth.sessions = Array.isArray(jsonAuth.sessions) ? jsonAuth.sessions : [];
+  fs.writeFileSync(jsonAuthPath, `${JSON.stringify(jsonAuth, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(jsonAuthPath, 0o600);
+  console.warn('[auth] node:sqlite is unavailable; using the Node 18 JSON auth fallback. Upgrade to Node 22+ for SQLite-backed auth.');
+}
+
+function saveJsonAuth() {
+  if (!jsonAuthPath) return;
+  fs.writeFileSync(jsonAuthPath, `${JSON.stringify(jsonAuth, null, 2)}\n`, { mode: 0o600 });
+  fs.chmodSync(jsonAuthPath, 0o600);
+}
+
+function removeExpiredJsonSessions(now = Date.now()) {
+  if (!jsonAuth) return;
+  const active = jsonAuth.sessions.filter((session) => session.expires_at > now);
+  if (active.length !== jsonAuth.sessions.length) {
+    jsonAuth.sessions = active;
+    saveJsonAuth();
+  }
+}
 
 let geojsonCache = null;
 
@@ -83,6 +116,7 @@ function hashSessionToken(token) {
 }
 
 function userCount() {
+  if (jsonAuth) return jsonAuth.users.length;
   return authDb.prepare('SELECT COUNT(*) AS count FROM users').get().count;
 }
 
@@ -90,6 +124,11 @@ function getSessionUser(request) {
   const token = parseCookies(request).navi_session;
   if (!token) return null;
   const now = Date.now();
+  if (jsonAuth) {
+    removeExpiredJsonSessions(now);
+    const session = jsonAuth.sessions.find((item) => item.token_hash === hashSessionToken(token) && item.expires_at > now);
+    return session ? jsonAuth.users.find((user) => user.id === session.user_id) || null : null;
+  }
   authDb.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(now);
   return authDb.prepare(`
     SELECT users.id, users.username
@@ -101,15 +140,27 @@ function getSessionUser(request) {
 function setSession(response, userId) {
   const token = crypto.randomBytes(32).toString('base64url');
   const expiresAt = Date.now() + SESSION_TTL_MS;
-  authDb.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
-  authDb.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hashSessionToken(token), userId, expiresAt);
+  if (jsonAuth) {
+    removeExpiredJsonSessions(Date.now());
+    jsonAuth.sessions = jsonAuth.sessions.filter((session) => session.user_id !== userId);
+    jsonAuth.sessions.push({ token_hash: hashSessionToken(token), user_id: userId, expires_at: expiresAt });
+    saveJsonAuth();
+  } else {
+    authDb.prepare('DELETE FROM sessions WHERE expires_at <= ?').run(Date.now());
+    authDb.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)').run(hashSessionToken(token), userId, expiresAt);
+  }
   const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
   response.setHeader('Set-Cookie', `navi_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secure}`);
 }
 
 function clearSession(request, response) {
   const token = parseCookies(request).navi_session;
-  if (token) authDb.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashSessionToken(token));
+  if (token && jsonAuth) {
+    jsonAuth.sessions = jsonAuth.sessions.filter((session) => session.token_hash !== hashSessionToken(token));
+    saveJsonAuth();
+  } else if (token) {
+    authDb.prepare('DELETE FROM sessions WHERE token_hash = ?').run(hashSessionToken(token));
+  }
   response.setHeader('Set-Cookie', 'navi_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
 }
 
@@ -158,8 +209,18 @@ app.post('/api/auth/setup', (req, res) => {
   const salt = crypto.randomBytes(16).toString('hex');
   const passwordHash = hashPassword(password, salt);
   try {
-    const result = authDb.prepare('INSERT INTO users (username, password_hash, password_salt, password_iterations) VALUES (?, ?, ?, ?)').run(username, passwordHash, salt, PASSWORD_ITERATIONS);
-    setSession(res, Number(result.lastInsertRowid));
+    let userId;
+    if (jsonAuth) {
+      if (jsonAuth.users.some((user) => user.username.toLowerCase() === username.toLowerCase())) throw new Error('duplicate');
+      userId = jsonAuth.nextUserId;
+      jsonAuth.nextUserId += 1;
+      jsonAuth.users.push({ id: userId, username, password_hash: passwordHash, password_salt: salt, password_iterations: PASSWORD_ITERATIONS });
+      saveJsonAuth();
+    } else {
+      const result = authDb.prepare('INSERT INTO users (username, password_hash, password_salt, password_iterations) VALUES (?, ?, ?, ?)').run(username, passwordHash, salt, PASSWORD_ITERATIONS);
+      userId = Number(result.lastInsertRowid);
+    }
+    setSession(res, userId);
     res.status(201).json({ ok: true, username });
   } catch (err) {
     res.status(409).json({ error: 'That username is already in use.' });
@@ -169,7 +230,9 @@ app.post('/api/auth/setup', (req, res) => {
 app.post('/api/auth/login', (req, res) => {
   const username = normalizeUsername(req.body?.username);
   const password = req.body?.password;
-  const user = authDb.prepare('SELECT * FROM users WHERE username = ?').get(username);
+  const user = jsonAuth
+    ? jsonAuth.users.find((candidate) => candidate.username.toLowerCase() === username.toLowerCase())
+    : authDb.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!user || typeof password !== 'string') {
     res.status(401).json({ error: 'Invalid username or password.' });
     return;
