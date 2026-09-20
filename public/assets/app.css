@@ -98,7 +98,7 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .legend-card { padding-top: 12px; }
 .legend-card .control-title { margin-bottom: 8px; }
 .legend-row { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; padding: 6px 0; color: var(--muted); font-size: 10px; }
-.legend-row i { width: 10px; height: 10px; border-radius: 50%; }
+.legend-row i { width: 10px; height: 10px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); }
 .legend-row b { color: var(--ink); }
 .risk-low { background: var(--cyan); }
 .risk-medium { background: #f5c83a; }

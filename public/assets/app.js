@@ -247,27 +247,38 @@ class TelecomCanvasLayer extends L.Layer {
       cluster.lat /= count;
       cluster.lon /= count;
       cluster.risk = cluster.riskCounts.lastIndexOf(Math.max(...cluster.riskCounts));
-      cluster.radius = count > 1 ? clamp(10 + Math.log10(count) * 4.5, 12, Math.min(24, cellSize / 2 - 2)) : zoom >= 13 ? 2.25 : 1.55;
+      cluster.radius = count > 1
+        ? clamp(10 + Math.log10(count) * 4.5, 12, Math.min(24, cellSize / 2 - 2))
+        : zoom >= 15 ? 8 : zoom >= 11 ? 6.5 : 4.25;
       return cluster;
     });
   }
 
   drawSite(context, item) {
-    const radius = item.highlighted ? item.radius + 1.15 : item.radius;
+    const size = item.highlighted ? item.radius + 1 : item.radius;
+    const tipY = item.y;
+    const middleY = tipY - size * 1.2;
     context.globalAlpha = state.areaBounds && !item.highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
     context.beginPath();
-    context.arc(item.x, item.y, radius, 0, Math.PI * 2);
+    context.moveTo(item.x, tipY);
+    context.bezierCurveTo(item.x - size * 0.3, tipY - size * 0.35, item.x - size, tipY - size * 0.75, item.x - size, middleY);
+    context.bezierCurveTo(item.x - size, tipY - size * 1.85, item.x - size * 0.55, tipY - size * 2.25, item.x, tipY - size * 2.25);
+    context.bezierCurveTo(item.x + size * 0.55, tipY - size * 2.25, item.x + size, tipY - size * 1.85, item.x + size, middleY);
+    context.bezierCurveTo(item.x + size, tipY - size * 0.75, item.x + size * 0.3, tipY - size * 0.35, item.x, tipY);
+    context.closePath();
     context.fillStyle = riskColors[item.risk];
     context.fill();
-    if (item.highlighted || item.selected || this._map.getZoom() >= 14) {
-      context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
-      context.lineWidth = item.selected ? 2.4 : item.highlighted ? 1.2 : 0.6;
-      context.stroke();
-    }
+    context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.95)" : "rgba(14,31,28,.58)";
+    context.lineWidth = item.selected ? 2 : item.highlighted ? 1.3 : 0.65;
+    context.stroke();
+    context.beginPath();
+    context.arc(item.x, middleY, Math.max(1.1, size * 0.3), 0, Math.PI * 2);
+    context.fillStyle = "rgba(255,255,255,.94)";
+    context.fill();
     if (item.selected) {
       context.globalAlpha = 1;
       context.beginPath();
-      context.arc(item.x, item.y, radius + 5, 0, Math.PI * 2);
+      context.arc(item.x, middleY, size + 4, 0, Math.PI * 2);
       context.strokeStyle = "#163f37";
       context.lineWidth = 2;
       context.stroke();
@@ -295,8 +306,9 @@ class TelecomCanvasLayer extends L.Layer {
     let best = null;
     let bestDistance = Infinity;
     for (const item of this._renderItems || []) {
-      const distance = (item.x - containerPoint.x) ** 2 + (item.y - containerPoint.y) ** 2;
-      const hitRadius = item.sites.length > 1 ? item.radius + 4 : radius;
+      const targetY = item.sites.length > 1 ? item.y : item.y - item.radius * 1.2;
+      const distance = (item.x - containerPoint.x) ** 2 + (targetY - containerPoint.y) ** 2;
+      const hitRadius = item.sites.length > 1 ? item.radius + 4 : Math.max(radius, item.radius + 4);
       if (distance <= hitRadius ** 2 && distance < bestDistance) {
         best = item;
         bestDistance = distance;
