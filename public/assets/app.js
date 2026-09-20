@@ -43,6 +43,7 @@ let siteLayer;
 let proposalLayer;
 let areaSelectionLayer;
 let areaSelectionStart;
+let areaSelectionPointerId = null;
 let coverageIndex;
 let selectedCoverageLayer;
 
@@ -339,9 +340,11 @@ function initialiseMap() {
   siteLayer = new TelecomCanvasLayer().addTo(map);
   proposalLayer = L.layerGroup().addTo(map);
   map.on("click", handleMapClick);
-  map.on("mousedown", startAreaSelection);
-  map.on("mousemove", updateAreaSelection);
-  map.on("mouseup", finishAreaSelection);
+  const mapContainer = map.getContainer();
+  mapContainer.addEventListener("pointerdown", startAreaSelection);
+  mapContainer.addEventListener("pointermove", updateAreaSelection);
+  mapContainer.addEventListener("pointerup", finishAreaSelection);
+  mapContainer.addEventListener("pointercancel", cancelAreaSelectionGesture);
 }
 
 function syncSurfaceLayers() {
@@ -387,9 +390,8 @@ function zoomIntoCluster(cluster) {
 }
 
 function setAreaSelectionMode(active) {
+  if (!active) cancelAreaSelectionGesture();
   state.selectingArea = active;
-  state.drawingArea = false;
-  areaSelectionStart = null;
   const button = $("#select-area");
   button.classList.toggle("active", active);
   button.setAttribute("aria-pressed", String(active));
@@ -404,10 +406,22 @@ function setAreaSelectionMode(active) {
   }
 }
 
+function pointerLatLng(event) {
+  const rect = map.getContainer().getBoundingClientRect();
+  const point = L.point(
+    clamp(event.clientX - rect.left, 0, rect.width),
+    clamp(event.clientY - rect.top, 0, rect.height),
+  );
+  return map.containerPointToLatLng(point);
+}
+
 function startAreaSelection(event) {
-  if (!state.selectingArea) return;
+  if (!state.selectingArea || !event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+  event.preventDefault();
+  areaSelectionPointerId = event.pointerId;
+  map.getContainer().setPointerCapture(event.pointerId);
   state.drawingArea = true;
-  areaSelectionStart = event.latlng;
+  areaSelectionStart = pointerLatLng(event);
   const bounds = L.latLngBounds(areaSelectionStart, areaSelectionStart);
   if (areaSelectionLayer) areaSelectionLayer.setBounds(bounds);
   else areaSelectionLayer = L.rectangle(bounds, {
@@ -422,14 +436,20 @@ function startAreaSelection(event) {
 }
 
 function updateAreaSelection(event) {
-  if (!state.drawingArea || !areaSelectionStart) return;
-  areaSelectionLayer.setBounds(L.latLngBounds(areaSelectionStart, event.latlng));
+  if (!state.drawingArea || !areaSelectionStart || event.pointerId !== areaSelectionPointerId) return;
+  event.preventDefault();
+  areaSelectionLayer.setBounds(L.latLngBounds(areaSelectionStart, pointerLatLng(event)));
 }
 
 function finishAreaSelection(event) {
-  if (!state.drawingArea || !areaSelectionStart) return;
-  const bounds = L.latLngBounds(areaSelectionStart, event.latlng);
+  if (!state.drawingArea || !areaSelectionStart || event.pointerId !== areaSelectionPointerId) return;
+  event.preventDefault();
+  const bounds = L.latLngBounds(areaSelectionStart, pointerLatLng(event));
+  const mapContainer = map.getContainer();
+  if (mapContainer.hasPointerCapture(event.pointerId)) mapContainer.releasePointerCapture(event.pointerId);
   state.drawingArea = false;
+  areaSelectionPointerId = null;
+  areaSelectionStart = null;
   state.suppressMapClick = true;
   setTimeout(() => { state.suppressMapClick = false; }, 0);
   setAreaSelectionMode(false);
@@ -442,6 +462,24 @@ function finishAreaSelection(event) {
   state.areaBounds = bounds;
   updateAreaSummary();
   siteLayer.redraw();
+}
+
+function cancelAreaSelectionGesture() {
+  const wasDrawing = state.drawingArea;
+  if (areaSelectionPointerId !== null) {
+    const mapContainer = map?.getContainer();
+    if (mapContainer?.hasPointerCapture(areaSelectionPointerId)) mapContainer.releasePointerCapture(areaSelectionPointerId);
+  }
+  areaSelectionPointerId = null;
+  areaSelectionStart = null;
+  state.drawingArea = false;
+  if (wasDrawing && areaSelectionLayer) {
+    if (state.areaBounds) areaSelectionLayer.setBounds(state.areaBounds);
+    else {
+      areaSelectionLayer.remove();
+      areaSelectionLayer = null;
+    }
+  }
 }
 
 function clearAreaSelection() {

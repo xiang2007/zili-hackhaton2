@@ -189,7 +189,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .area-select-button span { margin-right: 4px; font-size: 15px; line-height: 0; }
 .area-select-button.active { border-color: var(--green); color: white; background: var(--green); }
 .area-toolbar p { margin: 0; padding: 7px 9px; border-radius: 6px; color: white; background: rgba(23,36,35,.84); font-size: 9px; }
-#map.area-selecting { cursor: crosshair; }
+#map.area-selecting { cursor: crosshair; touch-action: none; }
 .map-legend { position: absolute; left: 18px; bottom: 30px; z-index: 500; min-width: 205px; padding: 11px; border: 1px solid rgba(255,255,255,.75); border-radius: 8px; background: rgba(255,254,249,.93); box-shadow: 0 8px 24px rgba(27, 45, 41, .11); }
 .map-legend h3 { margin: 0 0 7px; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
 .gradient-bar { height: 8px; border-radius: 4px; }
