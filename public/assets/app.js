@@ -3,6 +3,7 @@ const $$ = (selector) => [...document.querySelectorAll(selector)];
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const formatNumber = (value, digits = 0) => Number(value).toLocaleString("en-MY", { minimumFractionDigits: digits, maximumFractionDigits: digits });
 const formatClusterCount = (value) => value >= 1000 ? `${formatNumber(value / 1000, value >= 10000 ? 0 : 1)}k` : formatNumber(value);
+const radioLetter = (value) => String(value || "?").trim().charAt(0).toUpperCase() || "?";
 const riskNames = ["Low", "Medium", "High"];
 const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
 const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
@@ -300,6 +301,12 @@ class TelecomCanvasLayer extends L.Layer {
     context.arc(item.x, middleY, Math.max(1.1, size * 0.3), 0, Math.PI * 2);
     context.fillStyle = "rgba(255,255,255,.94)";
     context.fill();
+    context.globalAlpha = 1;
+    context.fillStyle = "#163f37";
+    context.font = `900 ${Math.max(7, Math.min(10, size * 0.9))}px Inter, system-ui, sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(radioLetter(item.sites[0][7]), item.x, middleY);
     if (item.selected) {
       context.globalAlpha = 1;
       context.beginPath();
