@@ -15,7 +15,7 @@ OpenCelliD data is fetched **once per month** and cached — it is not queried l
 
 ## Requirements
 
-- Node.js **>= 22.9** (the npm scripts use `--env-file-if-exists`)
+- Node.js **>= 18.17**
 - An OpenCelliD API token for the monthly cell fetch
   (free signup: <https://opencellid.org>)
 
@@ -25,6 +25,9 @@ OpenCelliD data is fetched **once per month** and cached — it is not queried l
 npm install
 cp .env.example .env      # then set OPENCELLID_API_KEY
 ```
+
+`.env` is gitignored, so a fresh clone needs this step. `.env` is loaded by the app
+itself (`src/env.js`), so no special Node flags are required.
 
 `.env`:
 
@@ -76,7 +79,7 @@ Manual refresh:
 ```bash
 npm run fetch:cells
 # or build from a local file to avoid the API's 2 downloads/file/day limit:
-node --env-file-if-exists=.env scripts/fetch-opencellid.js --file=/path/to/502.csv.gz
+node scripts/fetch-opencellid.js --file=/path/to/502.csv.gz
 ```
 
 Generated cache files (committed so a fresh clone works offline):

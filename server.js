@@ -1,5 +1,7 @@
 'use strict';
 
+require('./src/env');
+
 const fs = require('fs');
 const path = require('path');
 const express = require('express');

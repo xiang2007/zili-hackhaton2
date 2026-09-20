@@ -1,5 +1,7 @@
 'use strict';
 
+require('../src/env');
+
 const opencellid = require('../src/opencellid');
 
 function parseArgs(argv) {
