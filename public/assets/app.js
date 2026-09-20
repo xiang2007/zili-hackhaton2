@@ -24,6 +24,11 @@ const state = {
   gridMode: "baseline",
   opacity: 0.72,
   placing: false,
+  selectingArea: false,
+  drawingArea: false,
+  suppressMapClick: false,
+  areaBounds: null,
+  selectedSite: null,
   thermalWeight: 60,
   candidates: [],
   proposalMarkers: new Map(),
@@ -35,6 +40,12 @@ let derivedSurfaceLayer;
 let gridLayer;
 let siteLayer;
 let proposalLayer;
+let areaSelectionLayer;
+let areaSelectionStart;
+let coverageIndex;
+let selectedCoverageLayer;
+
+const coverageBinSize = 0.02;
 
 function riskForTemp(temp) {
   if (temp < 32) return 0;
@@ -154,22 +165,33 @@ class TelecomCanvasLayer extends L.Layer {
     L.DomUtil.setPosition(this._canvas, topLeft);
     const context = this._canvas.getContext("2d");
     context.scale(ratio, ratio);
-    context.globalAlpha = Math.min(0.92, state.opacity + 0.1);
     const radius = this._map.getZoom() >= 13 ? 2.25 : 1.55;
     for (const site of state.sites) {
       const point = this._map.latLngToContainerPoint([site[2], site[1]]);
       if (point.x < -4 || point.y < -4 || point.x > size.x + 4 || point.y > size.y + 4) continue;
+      const highlighted = state.areaBounds?.contains([site[2], site[1]]) ?? false;
+      const selected = state.selectedSite === site;
       const risk = riskForTemp(effectiveSiteTemp(site));
+      context.globalAlpha = state.areaBounds && !highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
       context.beginPath();
-      context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      context.arc(point.x, point.y, highlighted ? radius + 1.15 : radius, 0, Math.PI * 2);
       context.fillStyle = riskColors[risk];
       context.fill();
-      if (this._map.getZoom() >= 14) {
-        context.strokeStyle = "rgba(14,31,28,.55)";
-        context.lineWidth = 0.6;
+      if (highlighted || selected || this._map.getZoom() >= 14) {
+        context.strokeStyle = selected ? "#ffffff" : highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
+        context.lineWidth = selected ? 2.4 : highlighted ? 1.2 : 0.6;
+        context.stroke();
+      }
+      if (selected) {
+        context.globalAlpha = 1;
+        context.beginPath();
+        context.arc(point.x, point.y, radius + 5, 0, Math.PI * 2);
+        context.strokeStyle = "#163f37";
+        context.lineWidth = 2;
         context.stroke();
       }
     }
+    context.globalAlpha = 1;
   }
 
   nearestAt(containerPoint, radius = 8) {
@@ -192,6 +214,9 @@ function initialiseMap() {
   map.createPane("smoothHeatPane");
   map.getPane("smoothHeatPane").style.zIndex = 350;
   map.getPane("smoothHeatPane").style.pointerEvents = "none";
+  map.createPane("selectedCoveragePane");
+  map.getPane("selectedCoveragePane").style.zIndex = 375;
+  map.getPane("selectedCoveragePane").style.pointerEvents = "none";
   L.control.zoom({ position: "topleft" }).addTo(map);
   L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
   basemap = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -218,6 +243,9 @@ function initialiseMap() {
   siteLayer = new TelecomCanvasLayer().addTo(map);
   proposalLayer = L.layerGroup().addTo(map);
   map.on("click", handleMapClick);
+  map.on("mousedown", startAreaSelection);
+  map.on("mousemove", updateAreaSelection);
+  map.on("mouseup", finishAreaSelection);
 }
 
 function syncSurfaceLayers() {
@@ -234,15 +262,151 @@ function syncSurfaceLayers() {
 }
 
 function handleMapClick(event) {
+  if (state.selectingArea || state.drawingArea || state.suppressMapClick) return;
   if (state.placing) {
     addCandidate(event.latlng);
     return;
   }
+  if (!map.hasLayer(siteLayer)) return;
   const site = siteLayer.nearestAt(event.containerPoint, map.getZoom() >= 13 ? 10 : 7);
   if (site) inspectSite(site);
 }
 
+function setAreaSelectionMode(active) {
+  state.selectingArea = active;
+  state.drawingArea = false;
+  areaSelectionStart = null;
+  const button = $("#select-area");
+  button.classList.toggle("active", active);
+  button.setAttribute("aria-pressed", String(active));
+  button.innerHTML = active ? '<span aria-hidden="true">×</span> Cancel selection' : '<span aria-hidden="true">▱</span> Select area';
+  $("#area-hint").hidden = !active;
+  map.dragging[active ? "disable" : "enable"]();
+  $("#map").classList.toggle("area-selecting", active);
+  if (active) {
+    setPlacementMode(false);
+    if (!map.hasLayer(siteLayer)) siteLayer.addTo(map);
+    $("#show-sites").checked = true;
+  }
+}
+
+function startAreaSelection(event) {
+  if (!state.selectingArea) return;
+  state.drawingArea = true;
+  areaSelectionStart = event.latlng;
+  const bounds = L.latLngBounds(areaSelectionStart, areaSelectionStart);
+  if (areaSelectionLayer) areaSelectionLayer.setBounds(bounds);
+  else areaSelectionLayer = L.rectangle(bounds, {
+    color: "#163f37",
+    weight: 2,
+    opacity: 0.95,
+    fillColor: "#30b9d9",
+    fillOpacity: 0.18,
+    dashArray: "7 5",
+    interactive: false,
+  }).addTo(map);
+}
+
+function updateAreaSelection(event) {
+  if (!state.drawingArea || !areaSelectionStart) return;
+  areaSelectionLayer.setBounds(L.latLngBounds(areaSelectionStart, event.latlng));
+}
+
+function finishAreaSelection(event) {
+  if (!state.drawingArea || !areaSelectionStart) return;
+  const bounds = L.latLngBounds(areaSelectionStart, event.latlng);
+  state.drawingArea = false;
+  state.suppressMapClick = true;
+  setTimeout(() => { state.suppressMapClick = false; }, 0);
+  setAreaSelectionMode(false);
+  if (bounds.getNorth() === bounds.getSouth() || bounds.getEast() === bounds.getWest()) {
+    clearAreaSelection();
+    showToast("Drag across the map to select an area.");
+    return;
+  }
+  areaSelectionLayer.setBounds(bounds);
+  state.areaBounds = bounds;
+  updateAreaSummary();
+  siteLayer.redraw();
+}
+
+function clearAreaSelection() {
+  setAreaSelectionMode(false);
+  if (areaSelectionLayer) {
+    areaSelectionLayer.remove();
+    areaSelectionLayer = null;
+  }
+  state.areaBounds = null;
+  $("#area-summary").hidden = true;
+  siteLayer?.redraw();
+}
+
+function rectangleAreaKm2(bounds) {
+  const center = bounds.getCenter();
+  const width = haversine(center.lat, bounds.getWest(), center.lat, bounds.getEast());
+  const height = haversine(bounds.getSouth(), center.lng, bounds.getNorth(), center.lng);
+  return width * height;
+}
+
+function coverageBinKey(lat, lon) {
+  return `${Math.floor(lat / coverageBinSize)}:${Math.floor(lon / coverageBinSize)}`;
+}
+
+function buildCoverageIndex() {
+  coverageIndex = new Map();
+  for (const site of state.sites) {
+    const radiusKm = site[6] / 1000;
+    const latDelta = radiusKm / 110.574;
+    const lonDelta = radiusKm / (111.32 * Math.max(0.1, Math.cos(site[2] * Math.PI / 180)));
+    const southBin = Math.floor((site[2] - latDelta) / coverageBinSize);
+    const northBin = Math.floor((site[2] + latDelta) / coverageBinSize);
+    const westBin = Math.floor((site[1] - lonDelta) / coverageBinSize);
+    const eastBin = Math.floor((site[1] + lonDelta) / coverageBinSize);
+    for (let latBin = southBin; latBin <= northBin; latBin += 1) {
+      for (let lonBin = westBin; lonBin <= eastBin; lonBin += 1) {
+        const key = `${latBin}:${lonBin}`;
+        if (!coverageIndex.has(key)) coverageIndex.set(key, []);
+        coverageIndex.get(key).push(site);
+      }
+    }
+  }
+}
+
+function estimateCoveredAreaKm2(bounds, selectedSites, areaKm2) {
+  if (!selectedSites.length || areaKm2 <= 0) return 0;
+  const selectedIds = new Set(selectedSites.map((site) => site[0]));
+  const widthKm = haversine(bounds.getCenter().lat, bounds.getWest(), bounds.getCenter().lat, bounds.getEast());
+  const heightKm = haversine(bounds.getSouth(), bounds.getCenter().lng, bounds.getNorth(), bounds.getCenter().lng);
+  const aspect = clamp(widthKm / Math.max(heightKm, 0.001), 0.2, 5);
+  const columns = Math.max(18, Math.round(Math.sqrt(1800 * aspect)));
+  const rows = Math.max(18, Math.round(Math.sqrt(1800 / aspect)));
+  let covered = 0;
+  for (let row = 0; row < rows; row += 1) {
+    const lat = bounds.getSouth() + (row + 0.5) / rows * (bounds.getNorth() - bounds.getSouth());
+    for (let column = 0; column < columns; column += 1) {
+      const lon = bounds.getWest() + (column + 0.5) / columns * (bounds.getEast() - bounds.getWest());
+      const candidates = coverageIndex.get(coverageBinKey(lat, lon)) || [];
+      if (candidates.some((site) => selectedIds.has(site[0]) && haversine(lat, lon, site[2], site[1]) <= site[6] / 1000)) covered += 1;
+    }
+  }
+  return areaKm2 * covered / (rows * columns);
+}
+
+function updateAreaSummary() {
+  if (!state.areaBounds) return;
+  const selectedSites = state.sites.filter((site) => state.areaBounds.contains([site[2], site[1]]));
+  const areaKm2 = rectangleAreaKm2(state.areaBounds);
+  const coveredKm2 = estimateCoveredAreaKm2(state.areaBounds, selectedSites, areaKm2);
+  const coveragePercent = areaKm2 ? coveredKm2 / areaKm2 * 100 : 0;
+  $("#area-tower-count").textContent = formatNumber(selectedSites.length);
+  $("#area-size").textContent = `${formatNumber(areaKm2, areaKm2 < 10 ? 2 : 1)} km²`;
+  $("#area-coverage").textContent = `${formatNumber(coveredKm2, coveredKm2 < 10 ? 2 : 1)} km²`;
+  $("#area-coverage-note").textContent = `${formatNumber(coveragePercent, 0)}% of the selection is within a highlighted tower's reported range. Overlaps are counted once.`;
+  $("#area-summary").hidden = false;
+}
+
 function inspectGrid(feature) {
+  clearSelectedSite();
   const p = feature.properties;
   const scenarioTemp = effectiveGridTemp(p);
   $("#inspect-type").textContent = "Thermal evidence cell";
@@ -259,8 +423,22 @@ function inspectGrid(feature) {
 }
 
 function inspectSite(site) {
+  state.selectedSite = site;
+  if (selectedCoverageLayer) selectedCoverageLayer.remove();
+  selectedCoverageLayer = L.circle([site[2], site[1]], {
+    pane: "selectedCoveragePane",
+    radius: site[6],
+    color: "#163f37",
+    weight: 2,
+    opacity: 0.9,
+    fillColor: riskColors[riskForTemp(effectiveSiteTemp(site))],
+    fillOpacity: 0.16,
+    dashArray: "6 5",
+    interactive: false,
+  }).addTo(map);
+  siteLayer.redraw();
   const scenarioTemp = effectiveSiteTemp(site);
-  $("#inspect-type").textContent = "Telecom record";
+  $("#inspect-type").textContent = "Selected telecom tower";
   $("#inspect-title").textContent = site[0];
   $("#inspect-details").innerHTML = `<div class="inspect-grid">
     <div><span>Baseline LST</span><strong>${site[3].toFixed(1)} °C</strong></div>
@@ -269,8 +447,18 @@ function inspectSite(site) {
     <div><span>Radio / network</span><strong>${site[7]} · ${site[8]}</strong></div>
     <div><span>Reported range</span><strong>${formatNumber(site[6] / 1000, 1)} km</strong></div>
     <div><span>Samples</span><strong>${formatNumber(site[11])}</strong></div>
+    <div><span>Coordinates</span><strong>${site[2].toFixed(4)}, ${site[1].toFixed(4)}</strong></div>
   </div>`;
   $("#inspect-card").hidden = false;
+}
+
+function clearSelectedSite() {
+  state.selectedSite = null;
+  if (selectedCoverageLayer) {
+    selectedCoverageLayer.remove();
+    selectedCoverageLayer = null;
+  }
+  siteLayer?.redraw();
 }
 
 function updateMetrics() {
@@ -338,6 +526,7 @@ function renderLegend() {
 }
 
 function setPlacementMode(active) {
+  if (active && state.selectingArea) setAreaSelectionMode(false);
   state.placing = active;
   $("#place-site").textContent = active ? "Cancel placement" : "Place proposed site";
   $("#place-site").classList.toggle("secondary-button", active);
@@ -509,6 +698,8 @@ function bindControls() {
   $("#reset-map").addEventListener("click", () => map.fitBounds([[state.summary.bounds.south, state.summary.bounds.west], [state.summary.bounds.north, state.summary.bounds.east]], { padding: [24, 24] }));
   $("#view-preset").addEventListener("change", (event) => map.flyTo(presets[event.target.value].center, presets[event.target.value].zoom));
   $("#place-site").addEventListener("click", () => setPlacementMode(!state.placing));
+  $("#select-area").addEventListener("click", () => setAreaSelectionMode(!state.selectingArea));
+  $("#clear-area").addEventListener("click", clearAreaSelection);
   $("#thermal-weight").addEventListener("input", (event) => {
     state.thermalWeight = Number(event.target.value);
     $("#thermal-weight-output").textContent = `${state.thermalWeight}%`;
@@ -517,7 +708,10 @@ function bindControls() {
   });
   $("#export-csv").addEventListener("click", exportCsv);
   $("#export-memo").addEventListener("click", exportMemo);
-  $("#close-inspect").addEventListener("click", () => { $("#inspect-card").hidden = true; });
+  $("#close-inspect").addEventListener("click", () => {
+    $("#inspect-card").hidden = true;
+    clearSelectedSite();
+  });
   $("#open-baseline").addEventListener("click", () => $("#baseline-dialog").showModal());
   $("#open-uhvi").addEventListener("click", () => $("#uhvi-dialog").showModal());
   $("#help-button").addEventListener("click", () => $("#help-dialog").showModal());
@@ -536,6 +730,7 @@ async function initialise() {
     if (!siteResponse.ok || !gridResponse.ok || !summaryResponse.ok || !surfaceResponse.ok) throw new Error("A dashboard data file could not be loaded.");
     const siteData = await siteResponse.json();
     state.sites = siteData.rows;
+    buildCoverageIndex();
     state.grid = await gridResponse.json();
     state.summary = await summaryResponse.json();
     state.surfaceMatrix = await surfaceResponse.json();
