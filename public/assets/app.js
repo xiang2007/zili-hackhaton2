@@ -40,6 +40,7 @@ let basemap;
 let derivedSurfaceLayer;
 let gridLayer;
 let siteLayer;
+let highlightCoverageLayer;
 let proposalLayer;
 let areaSelectionLayer;
 let areaSelectionStart;
@@ -343,6 +344,68 @@ class TelecomCanvasLayer extends L.Layer {
   }
 }
 
+class HighlightCoverageCanvasLayer extends L.Layer {
+  onAdd(targetMap) {
+    this._map = targetMap;
+    this._canvas = L.DomUtil.create("canvas", "highlight-coverage-canvas");
+    this._canvas.style.position = "absolute";
+    this._canvas.style.pointerEvents = "none";
+    targetMap.getPane("coverageAreaPane").appendChild(this._canvas);
+    targetMap.on("moveend zoomend resize", this.redraw, this);
+    this.redraw();
+  }
+
+  onRemove(targetMap) {
+    L.DomUtil.remove(this._canvas);
+    targetMap.off("moveend zoomend resize", this.redraw, this);
+  }
+
+  redraw() {
+    if (!this._map || !this._canvas) return;
+    const size = this._map.getSize();
+    const ratio = window.devicePixelRatio || 1;
+    this._canvas.width = size.x * ratio;
+    this._canvas.height = size.y * ratio;
+    this._canvas.style.width = `${size.x}px`;
+    this._canvas.style.height = `${size.y}px`;
+    L.DomUtil.setPosition(this._canvas, this._map.containerPointToLayerPoint([0, 0]));
+    const context = this._canvas.getContext("2d");
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    context.clearRect(0, 0, size.x, size.y);
+    const bounds = state.areaBounds;
+    if (!bounds) return;
+
+    const southWest = this._map.latLngToContainerPoint([bounds.getSouth(), bounds.getWest()]);
+    const northEast = this._map.latLngToContainerPoint([bounds.getNorth(), bounds.getEast()]);
+    const left = Math.min(southWest.x, northEast.x);
+    const right = Math.max(southWest.x, northEast.x);
+    const top = Math.min(southWest.y, northEast.y);
+    const bottom = Math.max(southWest.y, northEast.y);
+    context.save();
+    context.beginPath();
+    context.rect(left, top, right - left, bottom - top);
+    context.clip();
+
+    for (const site of state.sites) {
+      if (!bounds.contains([site[2], site[1]])) continue;
+      const center = this._map.latLngToContainerPoint([site[2], site[1]]);
+      const radiusKm = Math.max(0, Number(site[6]) || 0) / 1000;
+      const northPoint = this._map.latLngToContainerPoint([site[2] + radiusKm / 110.574, site[1]]);
+      const radius = Math.max(1, Math.abs(center.y - northPoint.y));
+      const risk = riskForTemp(effectiveSiteTemp(site));
+      const [red, green, blue] = hexToRgb(riskColors[risk]);
+      context.beginPath();
+      context.arc(center.x, center.y, radius, 0, Math.PI * 2);
+      context.fillStyle = `rgba(${red},${green},${blue},.08)`;
+      context.fill();
+      context.strokeStyle = "rgba(22,63,55,.28)";
+      context.lineWidth = 1;
+      context.stroke();
+    }
+    context.restore();
+  }
+}
+
 function initialiseMap() {
   map = L.map("map", { zoomControl: false, preferCanvas: true, minZoom: 9, maxZoom: 17 });
   map.createPane("smoothHeatPane");
@@ -351,6 +414,9 @@ function initialiseMap() {
   map.createPane("selectedCoveragePane");
   map.getPane("selectedCoveragePane").style.zIndex = 375;
   map.getPane("selectedCoveragePane").style.pointerEvents = "none";
+  map.createPane("coverageAreaPane");
+  map.getPane("coverageAreaPane").style.zIndex = 370;
+  map.getPane("coverageAreaPane").style.pointerEvents = "none";
   L.control.zoom({ position: "topleft" }).addTo(map);
   L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
   basemap = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
@@ -375,6 +441,7 @@ function initialiseMap() {
   }).addTo(map);
 
   siteLayer = new TelecomCanvasLayer().addTo(map);
+  highlightCoverageLayer = new HighlightCoverageCanvasLayer().addTo(map);
   proposalLayer = L.layerGroup().addTo(map);
   map.on("click", handleMapClick);
   const mapContainer = map.getContainer();
@@ -499,6 +566,7 @@ function finishAreaSelection(event) {
   state.areaBounds = bounds;
   updateAreaSummary();
   siteLayer.redraw();
+  highlightCoverageLayer?.redraw();
 }
 
 function cancelAreaSelectionGesture() {
@@ -528,6 +596,7 @@ function clearAreaSelection() {
   state.areaBounds = null;
   $("#area-summary").hidden = true;
   siteLayer?.redraw();
+  highlightCoverageLayer?.redraw();
 }
 
 function rectangleAreaKm2(bounds) {
@@ -704,6 +773,7 @@ function updateScenario() {
   gridLayer?.setStyle(gridStyle);
   if (derivedSurfaceLayer && state.gridMode !== "baseline") derivedSurfaceLayer.setUrl(createDerivedSurfaceUrl());
   siteLayer?.redraw();
+  highlightCoverageLayer?.redraw();
   recalculateCandidates();
 }
 
