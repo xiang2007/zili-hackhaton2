@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Klang Valley municipal heat-risk decision dashboard and telecom scenario tool." />
+    <meta name="description" content="Navi heat distribution analysis dashboard for Klang Valley and telecom scenario planning." />
     <meta name="theme-color" content="#163f37" />
-    <title>Klang Valley Heat Decision Room</title>
+    <title>Navi | HEAT DISTRIBUTION ANALYSIS</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="assets/vendor/leaflet.css" />
     <link rel="stylesheet" href="assets/app.css" />
@@ -16,8 +16,7 @@
       <div class="brand-block">
         <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
         <div>
-          <p class="eyebrow">Phase 6 · Municipal decision support</p>
-          <h1>Klang Valley Heat Decision Room</h1>
+          <h1>Navi | HEAT DISTRIBUTION ANALYSIS</h1>
         </div>
       </div>
       <div class="top-actions">
@@ -29,6 +28,10 @@
             <option value="mbpj">MBPJ · Petaling Jaya</option>
           </select>
         </label>
+        <div class="current-user" id="current-user" hidden>
+          <span class="current-user-name"><small>Signed in as</small><strong id="current-username">—</strong></span>
+          <button class="logout-button" id="logout-button" type="button">Log out</button>
+        </div>
         <span class="status-pill classification-pill" title="Contains exact infrastructure coordinates"><i></i> Controlled technical data</span>
         <button class="icon-button" id="help-button" aria-label="Open methodology and help">?</button>
       </div>
@@ -46,13 +49,13 @@
         <section class="panel active" id="panel-overview">
           <div class="section-heading">
             <div><p class="eyebrow">Live portfolio</p><h2>Thermal exposure</h2></div>
-            <span class="data-date">2024 UHVI reference</span>
+            <span class="data-date">v6 · 56 areas</span>
           </div>
           <div class="metric-grid" aria-live="polite">
             <article class="metric"><span>Telecom records</span><strong id="metric-sites">—</strong><small>observed cells</small></article>
             <article class="metric danger"><span>High-risk now</span><strong id="metric-high">—</strong><small id="metric-high-share">—</small></article>
             <article class="metric"><span>Mean LST</span><strong id="metric-mean">—</strong><small>modelled surface °C</small></article>
-            <article class="metric warm"><span>Priority grid</span><strong id="metric-grid">—</strong><small>elevated + critical</small></article>
+            <article class="metric warm"><span>Very high UHVI</span><strong id="metric-grid">—</strong><small id="metric-grid-note">of 56 constituencies</small></article>
           </div>
 
           <div class="control-card">
@@ -62,13 +65,14 @@
                 <option value="baseline">Baseline LST · source raster</option>
                 <option value="scenario">Scenario LST · smoothed</option>
                 <option value="exposure">Thermal exposure · smoothed</option>
+                <option value="uhvi">UHVI · constituencies</option>
               </select>
             </label>
             <label class="range-label"><span>Overlay opacity</span><output id="opacity-output">72%</output>
               <input id="opacity" type="range" min="10" max="95" value="72" />
             </label>
             <div class="check-list">
-              <label><input id="show-grid" type="checkbox" checked /> Heat surface</label>
+              <label><input id="show-grid" type="checkbox" checked /> Selected map layer</label>
               <label><input id="show-sites" type="checkbox" checked /> Telecom cells</label>
               <label><input id="show-basemap" type="checkbox" checked /> Basemap</label>
             </div>
@@ -84,12 +88,22 @@
           <div class="reference-stack">
             <button class="reference-card" id="open-baseline">
               <span class="reference-thumb"><img src="assets/baseline_lst_reference.png" alt="Baseline LST heatmap layout thumbnail" /></span>
-              <span><small>Continuous source surface</small><strong>Open baseline LST layout</strong><em>22.07–53.64 °C · QGIS source PDF</em></span>
+              <span><small>Continuous source surface</small><strong>Open baseline LST layout</strong><em>25–50 °C · new QGIS source PDF</em></span>
               <b aria-hidden="true">↗</b>
             </button>
             <button class="reference-card" id="open-uhvi">
-              <span class="reference-thumb"><img src="assets/uhvi_reference.png" alt="UHVI 2024 reference map thumbnail" /></span>
-              <span><small>Public-health reference</small><strong>Open UHVI 2024 layout</strong><em>Five-class municipal index · source PDF</em></span>
+              <span class="reference-thumb"><img src="assets/uhvi_reference.png" alt="UHVI v6 reference map thumbnail" /></span>
+              <span><small>Public-health reference</small><strong>Open UHVI layout</strong><em>56 inspectable areas · five classes</em></span>
+              <b aria-hidden="true">↗</b>
+            </button>
+            <button class="reference-card" id="open-greening">
+              <span class="reference-thumb"><img src="assets/delta_greening_reference.png" alt="Greening corridor temperature-change map thumbnail" /></span>
+              <span><small>Intervention scenario</small><strong>Open greening delta layout</strong><em>Local temperature change · source PDF</em></span>
+              <b aria-hidden="true">↗</b>
+            </button>
+            <button class="reference-card" id="open-industrial">
+              <span class="reference-thumb"><img src="assets/delta_industrial_reference.png" alt="Industrial temperature-change map thumbnail" /></span>
+              <span><small>Intervention scenario</small><strong>Open industrial delta layout</strong><em>Industrial temperature change · source PDF</em></span>
               <b aria-hidden="true">↗</b>
             </button>
           </div>
@@ -97,7 +111,7 @@
 
         <section class="panel" id="panel-scenario">
           <div class="section-heading"><div><p class="eyebrow">Predictive scenario tool</p><h2>Stress-test heat</h2></div><button class="text-button" id="reset-scenario">Reset</button></div>
-          <p class="lede">Combine regional warming, local mitigation, and the supplied model delta. All changes are reversible and update the map instantly.</p>
+          <p class="lede">Combine regional warming, local mitigation, and the supplied greening-corridor delta. All changes are reversible and update the map instantly.</p>
 
           <div class="scenario-summary">
             <span>Net portfolio adjustment</span><strong id="net-delta">+0.0 °C</strong><small id="scenario-caption">Baseline conditions</small>
@@ -110,7 +124,7 @@
             <label class="range-label"><span>Cooling intervention</span><output id="mitigation-output">0.0 °C</output>
               <input id="mitigation" type="range" min="0" max="4" step="0.1" value="0" />
             </label>
-            <label class="switch-row"><span><b>Use supplied local model delta</b><small>Applies per-record scenario_delta_c</small></span><input id="model-delta" type="checkbox" /></label>
+            <label class="switch-row"><span><b>Use greening-corridor delta</b><small>Applies the v6 area-level greening estimate</small></span><input id="model-delta" type="checkbox" /></label>
           </div>
 
           <div class="metric-strip" aria-live="polite">
@@ -165,9 +179,13 @@
             <p class="classification-note" id="data-classification-note"><strong>Controlled-access dataset.</strong> Exact infrastructure coordinates are included. Do not republish until the accountable owner approves the disclosure profile.</p>
             <div class="button-row stack">
               <a class="secondary-button" href="data/heat_exposure_grid.geojson" download>Thermal exposure GeoJSON</a>
+              <a class="secondary-button" href="data/dashboard_data_v6_kl.geojson" download>UHVI areas v6 GeoJSON</a>
+              <a class="secondary-button" href="data/uhvi_areas_v6.csv" download>UHVI areas v6 CSV</a>
               <a class="secondary-button" href="data/telecom_heat_risk.csv" download aria-describedby="data-classification-note">Processed telecom CSV · controlled</a>
-              <a class="secondary-button" href="assets/UHVI_Klang_Valley_Layout.pdf" download>UHVI source PDF</a>
-              <a class="secondary-button" href="assets/Baseline_LST_Layout.pdf" download>Baseline LST source PDF</a>
+              <a class="secondary-button" href="assets/UHVI_Klang_Valley_v6.pdf" download>UHVI source PDF</a>
+              <a class="secondary-button" href="assets/LST_Baseline_Klang_Valley_v6.pdf" download>Baseline LST source PDF</a>
+              <a class="secondary-button" href="assets/Delta_Greening_Klang_Valley_v6.pdf" download>Greening delta source PDF</a>
+              <a class="secondary-button" href="assets/Delta_Industrial_Klang_Valley_v6.pdf" download>Industrial delta source PDF</a>
             </div>
           </div>
           <div class="feedback-card">
@@ -183,7 +201,7 @@
         <div class="map-title-card">
           <p class="eyebrow" id="map-eyebrow">Operational surface</p>
           <h2 id="map-title">Baseline mean land-surface temperature</h2>
-          <p id="map-subtitle">Continuous source raster · exact values remain available by inspection</p>
+          <p id="map-subtitle">Smoothed from v6 constituency means · exact values remain available by inspection</p>
         </div>
         <div class="area-toolbar">
           <button class="area-select-button" id="select-area" type="button" aria-pressed="false">
@@ -211,30 +229,44 @@
             <div id="inspect-details"></div>
           </article>
         </div>
-        <div class="map-notice">Planning-screen scale · WGS 84 · no administrative boundary filtering</div>
+        <div class="map-notice">Planning-screen scale · WGS 84 · v6 constituency boundaries</div>
       </section>
     </main>
 
     <dialog id="baseline-dialog" class="modal wide-modal">
       <form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>
-      <div class="modal-heading"><p class="eyebrow">Continuous baseline evidence</p><h2>Baseline Heatmap — Klang Valley</h2><p>The embedded QGIS raster is displayed directly on the map across the matching study extent. Published range: 22.066582–53.642132 °C.</p></div>
+      <div class="modal-heading"><p class="eyebrow">Continuous baseline evidence</p><h2>Baseline land-surface temperature — Klang Valley</h2><p>The interactive baseline background now uses the raster embedded in the supplied QGIS PDF, displayed with its 25–50 °C legend.</p></div>
       <img src="assets/baseline_lst_reference.png" alt="Baseline land-surface-temperature heatmap layout for Klang Valley" />
-      <div class="modal-actions"><a class="secondary-button" href="assets/Baseline_LST_Layout.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/BASELINE_LST_DATA_NOTE.md">Read layer note</a></div>
+      <div class="modal-actions"><a class="secondary-button" href="assets/LST_Baseline_Klang_Valley_v6.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/BASELINE_LST_DATA_NOTE.md">Read layer note</a></div>
     </dialog>
 
     <dialog id="uhvi-dialog" class="modal wide-modal">
       <form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>
-      <div class="modal-heading"><p class="eyebrow">Public-health / civil-defense reference</p><h2>Urban Heat Vulnerability Index — Klang Valley, 2024</h2><p>The supplied cartographic layout is preserved unchanged. It is a five-class planning reference, not a georeferenced parcel layer.</p></div>
-      <img src="assets/uhvi_reference.png" alt="Urban Heat Vulnerability Index map for Klang Valley, 2024" />
-      <div class="modal-actions"><a class="secondary-button" href="assets/UHVI_Klang_Valley_Layout.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/HVI_DATA_DICTIONARY.md">Read operational note</a></div>
+      <div class="modal-heading"><p class="eyebrow">Public-health / civil-defense evidence</p><h2>Urban Heat Vulnerability Index — Klang Valley</h2><p>The v6 release provides 56 machine-readable constituency polygons across Selangor, Kuala Lumpur and Putrajaya. Select UHVI in Map evidence, then click an area to inspect its score, rank and component data.</p></div>
+      <img src="assets/uhvi_reference.png" alt="Urban Heat Vulnerability Index map for Klang Valley" />
+      <div class="modal-actions"><a class="secondary-button" href="assets/UHVI_Klang_Valley_v6.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/HVI_DATA_DICTIONARY.md">Read data dictionary</a></div>
+    </dialog>
+
+    <dialog id="greening-dialog" class="modal wide-modal">
+      <form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>
+      <div class="modal-heading"><p class="eyebrow">Intervention scenario</p><h2>Greening-corridor temperature delta</h2><p>The area-level mean temperature change feeds the optional scenario switch. Negative values indicate modelled cooling; inspect the source layout before operational interpretation.</p></div>
+      <img src="assets/delta_greening_reference.png" alt="Greening corridor temperature-change map for Klang Valley" />
+      <div class="modal-actions"><a class="secondary-button" href="assets/Delta_Greening_Klang_Valley_v6.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/HVI_DATA_DICTIONARY.md">Read data dictionary</a></div>
+    </dialog>
+
+    <dialog id="industrial-dialog" class="modal wide-modal">
+      <form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>
+      <div class="modal-heading"><p class="eyebrow">Intervention scenario</p><h2>Industrial temperature delta</h2><p>The newest industrial-scenario source layout is preserved here for operational review and comparison with the v6 area attributes.</p></div>
+      <img src="assets/delta_industrial_reference.png" alt="Industrial temperature-change map for Klang Valley" />
+      <div class="modal-actions"><a class="secondary-button" href="assets/Delta_Industrial_Klang_Valley_v6.pdf" target="_blank" rel="noopener">Open source PDF</a><a class="primary-button" href="docs/HVI_DATA_DICTIONARY.md">Read data dictionary</a></div>
     </dialog>
 
     <dialog id="help-dialog" class="modal">
       <form method="dialog"><button class="modal-close" aria-label="Close">×</button></form>
       <p class="eyebrow">Read before use</p><h2>What this dashboard can—and cannot—decide</h2>
       <p>It supports heat screening and scenario comparison across the supplied telecom observations. Low, Medium, and High use the source breakpoints &lt;32 °C, 32–&lt;38 °C, and ≥38 °C.</p>
-      <p>The smooth default surface is extracted from the supplied baseline LST layout and registered to the matching study extent. Exact numeric inspection still comes from the evidence grid and model records.</p>
-      <p>The thermal exposure grid aggregates modelled land-surface temperature. It is not a full Heat Vulnerability Index because no demographic sensitivity or adaptive-capacity attributes were supplied.</p>
+      <p>The smooth default surface is generated from v6 area-level mean LST values. The supplied baseline PDF remains a cartographic reference; exact interactive values come from the v6 polygons and derived evidence grid.</p>
+      <p>The UHVI view combines normalised LST, income vulnerability and older-population share across 56 constituencies. The separate thermal exposure grid remains a telecom-focused heat proxy and should not be confused with UHVI.</p>
       <p>Proposed-site scores combine a lower-temperature preference with distance to the nearest supplied telecom record. They are preliminary and must pass the approval gates.</p>
     </dialog>
 

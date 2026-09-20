@@ -1,8 +1,8 @@
 {
   "title": "Klang Valley telecom thermal-risk decision dataset",
-  "generatedAt": "2026-09-20T03:00:42.207Z",
-  "source": "OpenCelliD MCC 502 + UHVI DUN evidence (data/opencellid/cells.json)",
-  "sourceSha256": "77b1333449045edae4f1fbf6bcdc0bb35a14750835754ac9649125f61998ce70",
+  "generatedAt": "2026-09-20T15:42:52.755Z",
+  "source": "OpenCelliD MCC 502 + UHVI v6 constituency evidence (data/dashboard_data_v6_kl.geojson)",
+  "sourceSha256": "f2f91d58b2cde39681771918ad9a137e4e272495d61da1af235dbeb567d1ab65",
   "thresholdsC": {
     "Low": "< 32",
     "Medium": "32 to < 38",
@@ -16,29 +16,56 @@
     "north": 3.4085
   },
   "baseline": {
-    "min": 28.39,
-    "max": 41.96,
-    "mean": 36.4135
+    "min": 27.374,
+    "max": 44.775,
+    "mean": 34.6067
   },
   "modelScenario": {
-    "min": 28.39,
-    "max": 41.96,
-    "mean": 36.3931
+    "min": 27.374,
+    "max": 44.775,
+    "mean": 34.5791
   },
   "riskCounts": {
-    "Low": 4975,
-    "Medium": 24638,
-    "High": 16047
+    "Low": 11966,
+    "Medium": 24087,
+    "High": 9607
   },
   "modelScenarioRiskCounts": {
-    "Low": 4975,
-    "Medium": 24638,
-    "High": 16047
+    "Low": 11966,
+    "Medium": 24087,
+    "High": 9607
   },
   "radioCounts": {
     "GSM": 20102,
     "LTE": 25477,
     "NR": 81
+  },
+  "administrativeAreas": {
+    "count": 56,
+    "states": [
+      "Selangor",
+      "W.P. Kuala Lumpur",
+      "W.P. Putrajaya"
+    ],
+    "population": 8964200,
+    "uhvi": {
+      "min": 0.312,
+      "max": 0.804,
+      "mean": 0.573,
+      "breaks": [
+        0.394,
+        0.498,
+        0.609,
+        0.722
+      ],
+      "classCounts": [
+        6,
+        11,
+        17,
+        15,
+        7
+      ]
+    }
   },
   "grid": {
     "cellCount": 2423,

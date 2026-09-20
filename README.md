@@ -1,7 +1,7 @@
-# Klang Valley Heat Decision Room
+# Navi | HEAT DISTRIBUTION ANALYSIS
 
 A municipal heat-risk decision dashboard for Klang Valley, served by a small
-Node.js/Express backend. The UI is the **Klang Valley Heat Decision Room** layout
+Node.js/Express backend. The UI is the **Navi | HEAT DISTRIBUTION ANALYSIS** layout
 (ported from the [`zili-hackathon`](https://github.com/xiang2007/zili-hackathon)
 dashboard); the heat layer is a **continuous raster surface**, and the telecom
 cells come from a **monthly-cached OpenCelliD** pull.
@@ -17,7 +17,7 @@ OpenCelliD data is fetched **once per month** and cached — it is not queried l
 
 ## Requirements
 
-- Node.js **>= 18.17**
+- Node.js **>= 18.17** (Node 18 uses the built-in JSON auth fallback; Node 22+ uses SQLite when `node:sqlite` is available)
 - An OpenCelliD API token for the monthly cell fetch
   (free signup: <https://opencellid.org>)
 
@@ -56,8 +56,8 @@ dashboard data, and the monthly refresh is skipped.
 
 ```
 OpenCelliD 502.csv.gz ──► data/opencellid/cells.json   (monthly cache)
-dashboard_data_v3.geojson ─┐
-                           ├─► scripts/build-dashboard-data.js
+dashboard_data_v6_kl.geojson ─┐
+                              ├─► scripts/build-dashboard-data.js
 cells.json ────────────────┘        │
                                     ▼
         data/sites.json                    telecom observations (45,660)
@@ -65,13 +65,14 @@ cells.json ────────────────┘        │
         data/surface_matrix.json           64×52 smoothed surface
         data/summary.json                  bounds / stats / counts
         data/telecom_heat_risk.csv         processed source export
+        data/uhvi_areas_v6.csv             56-area UHVI table
 ```
 
-The UI fetches `data/summary.json`, `data/sites.json`,
-`data/heat_exposure_grid.geojson` and `data/surface_matrix.json`. The heat surface
-is rendered client-side from the matrix (canvas → image overlay); switching between
-**Baseline / Scenario / Exposure** recolours it. The **Telecom cells** toggle draws
-the cached observations as a canvas point layer coloured by thermal risk.
+The UI also fetches `data/dashboard_data_v6_kl.geojson`. The heat surface is
+rendered client-side from the matrix (canvas → image overlay); switching between
+**Baseline / Scenario / Exposure** recolours it. **UHVI** displays the five-class,
+inspectable constituency choropleth. The **Telecom cells** toggle draws the cached
+observations as a canvas point layer coloured by thermal risk.
 
 Rebuild the dashboard data at any time:
 
@@ -84,7 +85,8 @@ npm run build:data
 - Source: OpenCelliD Malaysia bulk export (MCC 502),
   `https://opencellid.org/ocid/downloads?token=<KEY>&type=mcc&file=502.csv.gz`
 - Filtered to the Klang Valley bounding box, then each cell is assigned to its
-  containing DUN and classified by that DUN's mean LST:
+  containing v6 constituency (or the nearest area outside the supplied polygons)
+  and classified by that area's mean LST:
   Low `< 32 °C`, Medium `32–38 °C`, High `>= 38 °C`.
 - Refresh policy: on server start, refresh if the cache is missing or past
   `next_refresh_at`; then poll every 6 hours. `REFRESH_INTERVAL_DAYS` (default 30)
@@ -105,8 +107,8 @@ node scripts/fetch-opencellid.js --file=/path/to/502.csv.gz
 | ------ | ---------------------- | ------- |
 | GET    | `/api/health`          | `{ ok: true }` |
 | GET    | `/api/meta`            | dataset bounds, PNG bounds, cache meta, thresholds |
-| GET    | `/api/geojson`         | raw `dashboard_data_v3.geojson` |
-| GET    | `/api/csv`             | raw `uhvi_dun_v3.csv` |
+| GET    | `/api/geojson`         | raw `dashboard_data_v6_kl.geojson` |
+| GET    | `/api/csv`             | generated `uhvi_areas_v6.csv` |
 | GET    | `/api/cells`           | `{ meta, fields, cells }` |
 | GET    | `/api/cells/meta`      | cache metadata only |
 | POST   | `/api/cells/refresh`   | refresh the cache and rebuild dashboard data |
@@ -125,15 +127,15 @@ src/dashboard-data.js            build sites/grid/surface/summary from the cache
 src/scheduler.js                 monthly staleness check + refresh + rebuild
 scripts/fetch-opencellid.js      CLI refresh
 scripts/build-dashboard-data.js  CLI dashboard-data build
-public/index.html                Heat Decision Room UI
+public/index.html                Navi heat distribution analysis UI
 public/assets/app.js             dashboard logic (module)
 public/assets/app.css            light theme
 public/assets/vendor/            Leaflet
 public/docs/                     handoff documents
 public/presentation.html         print-ready stakeholder deck
-data/dashboard_data_v3.geojson   44 DUN polygons + UHVI/LST attributes
-data/uhvi_dun_v3.csv             district table
-data/UHVI_Klang_Valley_v2_2.png  supplied UHVI layout
+data/dashboard_data_v6_kl.geojson  56 constituency polygons + UHVI/LST/demographic attributes
+data/uhvi_areas_v6.csv             generated area table ordered by UHVI rank
+public/assets/*_v6.pdf              supplied UHVI, baseline-LST, greening and industrial layouts
 data/opencellid/                 monthly cache
 data/sites.json                  generated dashboard data (see above)
 data/phase6_telecom_heat_risk.ipynb  OpenCelliD sampling + risk pipeline
@@ -148,7 +150,9 @@ Cell data: **© OpenCelliD, CC BY-SA 4.0** (<https://opencellid.org>). Basemap t
 ## Caveats
 
 - The smooth surface is a visual interpolation of 0.01° evidence cells; inspect grid
-  cells for exact aggregate values.
+  cells or v6 polygons for numeric values.
+- UHVI supports constituency-level screening only. It must not be used for parcel,
+  person, address or asset-level classification, emergency dispatch, or automation.
 - OpenCelliD is crowd-sourced and not an official tower inventory — treat it as an
   indicative proxy for where thermal risk concentrates.
 - Site scores are screening aids only and do not replace planning permission,

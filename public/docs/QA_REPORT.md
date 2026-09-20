@@ -7,7 +7,7 @@
 
 | Check | Result |
 |---|---|
-| Artifact/schema/checksum validation | Pass — 34 required artifacts, 37,747 source records, 1,486 grid cells |
+| Artifact/schema/checksum validation | Pass — v6 artifacts, 45,660 source records, 2,423 grid cells, 56 UHVI areas |
 | Source/deployed CSV SHA-256 match | Pass |
 | Local HTML links and assets | Pass |
 | Desktop scenario-to-approval journey | Pass |
@@ -29,8 +29,8 @@ Automated checks cannot establish complete WCAG conformance. The controlled pilo
 
 ## Surface rendering added in v1.1.0
 
-- Integrated the continuous raster embedded in `Baseline_LST_Layout.pdf` as the default Leaflet heat surface.
-- Preserved the published 22.066582–53.642132 °C range and documented extent-based registration.
+- Integrated the v6 area-level LST means as the default interactive heat surface and preserved the new baseline PDF as a reference layout.
+- Documented the v6 constituency mean range (27.374–44.775 °C) and the separate 25–50 °C source-map legend.
 - Added a 64 × 52 Gaussian-weighted matrix and bilinear client renderer for smooth scenario and exposure surfaces.
 - Kept the exact 0.01° evidence cells invisibly interactive, so smoothing changes presentation rather than inspection values or scoring.
 

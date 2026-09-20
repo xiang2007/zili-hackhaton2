@@ -7,12 +7,13 @@ const geo = require('./geo');
 const opencellid = require('./opencellid');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const GEOJSON_PATH = path.join(DATA_DIR, 'dashboard_data_v3.geojson');
+const GEOJSON_PATH = path.join(DATA_DIR, 'dashboard_data_v6_kl.geojson');
 const SITES_PATH = path.join(DATA_DIR, 'sites.json');
 const GRID_PATH = path.join(DATA_DIR, 'heat_exposure_grid.geojson');
 const SURFACE_PATH = path.join(DATA_DIR, 'surface_matrix.json');
 const SUMMARY_PATH = path.join(DATA_DIR, 'summary.json');
 const CSV_PATH = path.join(DATA_DIR, 'telecom_heat_risk.csv');
+const AREAS_CSV_PATH = path.join(DATA_DIR, 'uhvi_areas_v6.csv');
 
 const RISK_NAME = ['Low', 'Medium', 'High'];
 const GRID_SIZE = 0.01;
@@ -36,8 +37,8 @@ function buildReferences(geojson, index) {
   const byDun = new Map();
   for (const feature of geojson.features) {
     const props = feature.properties;
-    const lst = Number.parseFloat(props.klang_valley_uhvi_final__LSTbasemean);
-    const delta = Number.parseFloat(props.green__deltaGreenmean);
+    const lst = Number.parseFloat(props.lst_mean);
+    const delta = Number.parseFloat(props.green_mean);
     const center = geo.centroid(props, index);
     if (!center || !Number.isFinite(lst)) continue;
     const ref = {
@@ -103,18 +104,15 @@ function build() {
     const lat = row[field.lat];
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
 
-    const dun = row[field.dun];
-    let baseline = row[field.lst];
-    let delta = 0;
-    if (baseline !== null && baseline !== undefined && dun && byDun.has(dun)) {
-      delta = byDun.get(dun).delta;
-    }
-    if (baseline === null || baseline === undefined) {
-      const ref = nearestReference(refs, lon, lat);
-      if (!ref) continue;
-      baseline = ref.lst;
-      delta = ref.delta;
-    }
+    const cachedDun = row[field.dun];
+    const containingArea = geo.locate(index, lon, lat);
+    let ref = containingArea ? byDun.get(containingArea.dun) : null;
+    if (!ref && cachedDun) ref = byDun.get(cachedDun);
+    if (!ref) ref = nearestReference(refs, lon, lat);
+    if (!ref) continue;
+    let baseline = ref.lst;
+    let delta = ref.delta;
+    const areaName = containingArea?.dun || ref.dun;
 
     baseline = round(baseline, 3);
     delta = round(delta, 3);
@@ -140,7 +138,8 @@ function build() {
       net,
       area,
       cellId,
-      samples
+      samples,
+      areaName
     ]);
 
     stats.rows += 1;
@@ -281,24 +280,53 @@ function build() {
     for (const key of Object.keys(group)) group[key] = round(group[key], 4);
   }
 
-  const csvLines = ['radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignalStrength,predicted_lst_c,risk_tier,scenario_delta_c,scenario_lst_c,scenario_risk_tier'];
+  const csvLines = ['radio,mcc,net,area,cell,unit,lon,lat,range,samples,changeable,created,updated,averageSignalStrength,predicted_lst_c,risk_tier,greening_delta_c,scenario_lst_c,scenario_risk_tier,uhvi_area'];
   for (const site of sites) {
     const scenario = round(site[3] + site[5], 3);
     csvLines.push([
       site[7], 502, site[8], site[9], site[10], 0,
       site[1], site[2], site[6], site[11], 1, 0, 0, 0,
-      site[3], RISK_NAME[site[4]], site[5], scenario, RISK_NAME[riskCode(scenario)]
+      site[3], RISK_NAME[site[4]], site[5], scenario, RISK_NAME[riskCode(scenario)], `"${String(site[12]).replaceAll('"', '""')}"`
     ].join(','));
   }
   const csv = `${csvLines.join('\n')}\n`;
 
+  const areaFields = ['rank', 'code_dun', 'dun', 'state', 'parlimen', 'district', 'population', 'lst_mean', 'income_mean', 'elderly_pct', 'uhvi', 'green_mean', 'green_min', 'green_max', 'ind_mean', 'ind_min', 'ind_max'];
+  const quoteCsv = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const areaCsvLines = [areaFields.join(',')];
+  for (const feature of [...geojson.features].sort((a, b) => a.properties.rank - b.properties.rank)) {
+    areaCsvLines.push(areaFields.map((name) => quoteCsv(feature.properties[name])).join(','));
+  }
+  const areaCsv = `${areaCsvLines.join('\n')}\n`;
+
+  const uhviValues = geojson.features.map((feature) => Number(feature.properties.uhvi)).filter(Number.isFinite);
+  const population = geojson.features.reduce((sum, feature) => sum + (Number(feature.properties.population) || 0), 0);
+  const uhviBreaks = [0.394, 0.498, 0.609, 0.722];
+  const uhviClassCounts = [0, 0, 0, 0, 0];
+  for (const value of uhviValues) {
+    const classIndex = uhviBreaks.findIndex((limit) => value < limit);
+    uhviClassCounts[classIndex === -1 ? 4 : classIndex] += 1;
+  }
+
   const summary = {
     title: 'Klang Valley telecom thermal-risk decision dataset',
     generatedAt: new Date().toISOString(),
-    source: 'OpenCelliD MCC 502 + UHVI DUN evidence (data/opencellid/cells.json)',
+    source: 'OpenCelliD MCC 502 + UHVI v6 constituency evidence (data/dashboard_data_v6_kl.geojson)',
     sourceSha256: crypto.createHash('sha256').update(csv).digest('hex'),
     thresholdsC: { Low: '< 32', Medium: '32 to < 38', High: '>= 38' },
     ...stats,
+    administrativeAreas: {
+      count: geojson.features.length,
+      states: [...new Set(geojson.features.map((feature) => feature.properties.state))],
+      population,
+      uhvi: {
+        min: round(Math.min(...uhviValues), 4),
+        max: round(Math.max(...uhviValues), 4),
+        mean: round(uhviValues.reduce((sum, value) => sum + value, 0) / uhviValues.length, 4),
+        breaks: uhviBreaks,
+        classCounts: uhviClassCounts
+      }
+    },
     grid: {
       cellCount: features.length,
       nominalResolutionDegrees: GRID_SIZE,
@@ -314,7 +342,7 @@ function build() {
 
   fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(SITES_PATH, JSON.stringify({
-    schema: ['id', 'lon', 'lat', 'baseline_lst_c', 'baseline_risk_code', 'model_delta_c', 'range_m', 'radio', 'network', 'area', 'cell', 'samples'],
+    schema: ['id', 'lon', 'lat', 'baseline_lst_c', 'baseline_risk_code', 'greening_delta_c', 'range_m', 'radio', 'network', 'area', 'cell', 'samples', 'uhvi_area'],
     riskNames: RISK_NAME,
     rows: sites
   }));
@@ -322,8 +350,9 @@ function build() {
   fs.writeFileSync(SURFACE_PATH, JSON.stringify(surface));
   fs.writeFileSync(SUMMARY_PATH, `${JSON.stringify(summary, null, 2)}\n`);
   fs.writeFileSync(CSV_PATH, csv);
+  fs.writeFileSync(AREAS_CSV_PATH, areaCsv);
 
   return { sites: sites.length, gridCells: features.length, summary };
 }
 
-module.exports = { build, exists, SITES_PATH, GRID_PATH, SURFACE_PATH, SUMMARY_PATH, CSV_PATH };
+module.exports = { build, exists, SITES_PATH, GRID_PATH, SURFACE_PATH, SUMMARY_PATH, CSV_PATH, AREAS_CSV_PATH };

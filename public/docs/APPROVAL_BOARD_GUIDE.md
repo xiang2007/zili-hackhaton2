@@ -8,8 +8,8 @@ Use the tool to compare proposed telecom locations under a shared heat scenario 
 
 - **Regional heat stress:** uniform adjustment from −2.0 °C to +5.0 °C.
 - **Cooling intervention:** uniform reduction from 0.0 °C to 4.0 °C.
-- **Supplied local model delta:** optional record-level `scenario_delta_c` from the source CSV.
-- **Scenario LST:** baseline LST + regional heat stress − cooling intervention + optional local model delta.
+- **Supplied greening delta:** optional v6 area-level `green_mean` assigned to each record.
+- **Scenario LST:** baseline LST + regional heat stress − cooling intervention + optional greening delta.
 - **Risk tiers:** Low <32 °C; Medium 32–<38 °C; High ≥38 °C.
 
 Record every assumption in the exported memo. Do not compare memos whose assumptions differ without stating the difference.

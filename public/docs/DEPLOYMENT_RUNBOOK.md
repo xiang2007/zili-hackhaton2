@@ -9,7 +9,7 @@ npm test
 npm start
 ```
 
-Open `http://localhost:4173`. Leaflet is vendored locally. OpenStreetMap tiles require internet; if unavailable, turn off Basemap—the source raster, smoothed scenario/exposure surfaces, points, scenario tool, exports, documents, and reference images continue to work.
+Open `http://localhost:4173`. Leaflet is vendored locally. OpenStreetMap tiles require internet; if unavailable, turn off Basemap—the smoothed heat surfaces, UHVI polygons, points, scenario tool, exports, documents, and reference images continue to work.
 
 ## Static hosting
 
@@ -31,7 +31,7 @@ Recommended controls before external release:
 
 ## Smoke test
 
-- Overview metrics show 37,747 records and 15,945 baseline High-risk records.
+- Overview metrics show 45,660 records, 9,607 baseline High-risk records, and 7 highest-class UHVI areas.
 - The continuous baseline raster and both smoothed derived surfaces render; opacity/layer toggles work.
 - Scenario +2.0 °C changes the High-risk count; reset restores the baseline.
 - A map-click candidate appears, rescoring changes with weight, and CSV/memo exports download.

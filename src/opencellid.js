@@ -7,7 +7,7 @@ const geo = require('./geo');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const CACHE_DIR = path.join(DATA_DIR, 'opencellid');
-const GEOJSON_PATH = path.join(DATA_DIR, 'dashboard_data_v3.geojson');
+const GEOJSON_PATH = path.join(DATA_DIR, 'dashboard_data_v6_kl.geojson');
 const CELLS_PATH = path.join(CACHE_DIR, 'cells.json');
 const META_PATH = path.join(CACHE_DIR, 'meta.json');
 const SITES_PATH = path.join(CACHE_DIR, 'telecom_sites.geojson');
@@ -62,7 +62,7 @@ function parseCell(row, index) {
   const dun = geo.locate(index, lon, lat);
   let lst = null;
   if (dun) {
-    const parsed = Number.parseFloat(dun.klang_valley_uhvi_final__LSTbasemean);
+    const parsed = Number.parseFloat(dun.lst_mean);
     if (Number.isFinite(parsed)) lst = round2(parsed);
   }
   return {

@@ -1,24 +1,18 @@
 {
-  "title": "Urban Heat Vulnerability Index (UHVI) — Klang Valley, 2024",
-  "source_artifact": "../assets/UHVI_Klang_Valley_Layout.pdf",
-  "source_format": "QGIS-authored cartographic PDF",
-  "crs": "Not encoded in the supplied PDF",
+  "title": "Urban Heat Vulnerability Index — Klang Valley v6",
+  "source_vector": "dashboard_data_v6_kl.geojson",
+  "source_artifact": "../public/assets/UHVI_Klang_Valley_v6.pdf",
+  "geometry": "56 constituency polygons in GeoJSON longitude/latitude (WGS 84)",
+  "states": ["Selangor", "W.P. Kuala Lumpur", "W.P. Putrajaya"],
+  "score_range": { "minimum": 0.3119656404, "maximum": 0.8039637701 },
   "classes": [
-    { "label": "0.133 - 0.41", "minimum": 0.133, "maximum": 0.41 },
-    { "label": "0.41 - 0.498", "minimum": 0.41, "maximum": 0.498 },
-    { "label": "0.498 - 0.547", "minimum": 0.498, "maximum": 0.547 },
-    { "label": "0.547 - 0.633", "minimum": 0.547, "maximum": 0.633 },
-    { "label": "0.633 - 0.779", "minimum": 0.633, "maximum": 0.779 }
+    { "label": "0.312 - <0.394", "minimum": 0.312, "maximum_exclusive": 0.394, "count": 6 },
+    { "label": "0.394 - <0.498", "minimum": 0.394, "maximum_exclusive": 0.498, "count": 11 },
+    { "label": "0.498 - <0.609", "minimum": 0.498, "maximum_exclusive": 0.609, "count": 17 },
+    { "label": "0.609 - <0.722", "minimum": 0.609, "maximum_exclusive": 0.722, "count": 15 },
+    { "label": "0.722 - 0.804", "minimum": 0.722, "maximum": 0.804, "count": 7 }
   ],
-  "operational_status": "Reference-only raster layout",
-  "authorized_use": "Strategic briefing and visual cross-reference at municipal scale",
-  "prohibited_use": "Parcel, person, address, or asset-level classification; emergency dispatch; automated approvals",
-  "vectorization_required_for_operational_join": true,
-  "vectorization_acceptance_criteria": [
-    "Authoritative zone geometry and stable zone identifier supplied by custodian",
-    "Documented CRS and topology validation",
-    "Score field and class-boundary convention confirmed",
-    "Join to current population sensitivity and adaptive-capacity indicators",
-    "Custodian sign-off and release date recorded"
-  ]
+  "operational_status": "Area-level screening evidence pending custodian and methodology sign-off",
+  "authorized_use": "Constituency-scale comparison, strategic briefing and controlled pilot screening",
+  "prohibited_use": "Parcel, person, address or asset-level classification; emergency dispatch; automated approvals"
 }

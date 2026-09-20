@@ -117,7 +117,10 @@ function centroid(props, index) {
   if (!props || !index) return null;
   for (let i = 0; i < index.length; i += 1) {
     const entry = index[i];
-    if (entry.props && entry.props.fid === props.fid) {
+    const sameFeature = entry.props === props;
+    const sameLegacyId = props.fid !== undefined && entry.props && entry.props.fid === props.fid;
+    const sameAreaCode = props.code_dun && entry.props && entry.props.code_dun === props.code_dun;
+    if (sameFeature || sameLegacyId || sameAreaCode) {
       let sumLon = 0;
       let sumLat = 0;
       let count = 0;

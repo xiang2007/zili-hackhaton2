@@ -1,44 +1,40 @@
 # Executive summary: Klang Valley heat decision support
 
-**Release:** Phase 6 v1.1.0
+**Release:** Phase 6 · data v6
 **Audience:** DBKL, MBSA, MBPJ, public health, civil defense, telecom and planning partners
 **Decision status:** Screening and coordination support; not statutory approval
 
 ## Decision headline
 
-The supplied portfolio contains **37,747 telecom records**. At baseline, **15,945 (42.2%)** are in the source-defined High risk tier (predicted land-surface temperature ≥38 °C); **18,336** are Medium and **3,466** are Low. Mean predicted LST is **37.66 °C**, with modelled values from **23.98 °C to 53.07 °C**.
+The v6 release adds a machine-readable Urban Heat Vulnerability Index for **56 constituencies** across Selangor, Kuala Lumpur and Putrajaya, representing a supplied population of **8,964,200**. UHVI values span **0.312–0.804**; seven areas are in the highest published class (≥0.722). Kepong ranks first at 0.804.
 
-The operational recommendation is to use the dashboard for three bounded decisions:
+The rebuilt portfolio contains **45,660 telecom records**. At baseline, **9,607 (21.0%)** are High risk (LST ≥38 °C), **24,087** are Medium, and **11,966** are Low. Mean assigned LST is **34.61 °C**, with area values from **27.37 °C to 44.77 °C**.
 
-1. Identify heat-exposed telecom records and evidence-grid cells for engineering review.
-2. Compare common warming/cooling assumptions consistently across agencies.
-3. Register and export proposed-site screens before mandatory statutory, engineering, environmental, equity, and consultation checks.
+Use the dashboard for three bounded decisions:
 
-## KLCAP2050 contribution
-
-The official Kuala Lumpur Climate Action Plan identifies heat, flood, and drought as key climate hazards and sets a **Cooler City by decreasing Urban Heat Island** goal. It also calls for monitoring, evaluation, reporting, and interdepartmental delivery. This package supports that direction by establishing a reproducible heat evidence surface, scenario measures, ownership gates, and exportable review records. It does not claim to measure citywide health outcomes or policy impact without additional data. See the [official KLCAP2050 report](https://www.dbkl.gov.my/files/kuala-lumpur-climate-action-plan-%28klcap2050%29.pdf) and [DBKL publication page](https://www.dbkl.gov.my/en/penerbitan-dan-laporan/kuala-lumpur-climate-action-plan-2050).
-
-The Kuala Lumpur Structure Plan 2040 also frames Goals 3 and 4 around a green, healthy city and climate-smart resilience, including canopy and climate-adaptation directions. The dashboard can support spatial prioritisation and monitoring once authoritative administrative, canopy, population, and intervention layers are joined. See the [official PSKL2040 portal](https://ppkl.dbkl.gov.my/en/pskl2040/).
+1. Compare UHVI rank and components across supplied constituencies.
+2. Identify heat-exposed telecom records and evidence cells for engineering review.
+3. Compare regional warming, cooling and the supplied greening-corridor scenario, then export preliminary proposed-site screens.
 
 ## What boards receive
 
-- A transparent scenario tool with reversible regional warming and cooling assumptions.
-- Source-verified Low/Medium/High thresholds: **<32 °C**, **32–<38 °C**, **≥38 °C**.
-- A proposed-site screen combining thermal resilience and distance to the nearest supplied telecom record; weights are visible and exportable.
-- A board memo, candidate CSV, public-health action matrix, UHVI metadata, data dictionary, and presentation.
-- An archive process with SHA-256 checksums and reproducible data-build scripts.
+- An inspectable five-class UHVI choropleth with rank, population, LST, income and older-population attributes.
+- Reversible baseline, scenario and thermal-exposure surfaces.
+- Source thresholds: **<32 °C**, **32–<38 °C**, **≥38 °C**.
+- New UHVI, baseline-LST and greening-delta source layouts.
+- GeoJSON/CSV downloads, proposed-site register, board memo, data dictionary, and handoff package.
 
 ## Critical limitation
 
-The supplied UHVI is a cartographic PDF without vector geometry, CRS metadata, or zone IDs. It is preserved as a strategic reference. The derived GeoJSON is intentionally named **thermal exposure grid**: it does not include demographic sensitivity or adaptive capacity and must not be represented as a complete Heat Vulnerability Index.
+UHVI is an area-level screening index. It does not justify parcel/person classification, emergency dispatch or automated resource allocation. The telecom grid is a separate thermal-exposure proxy: record density is not population density. Custodians must confirm methodology, vintages, uncertainty, stable IDs and operational protocols before publication or allocation decisions.
 
 ## 90-day handoff recommendation
 
-- **Days 0–15:** Custodian review of thresholds, terminology, and authoritative UHVI source data; security/accessibility review; agree accountable owner.
-- **Days 16–45:** DBKL/MBSA/MBPJ task-based usability workshops; join current boundaries, population, critical facilities, canopy, land use, and intervention inventories.
-- **Days 46–75:** Validate scenario assumptions with meteorological and engineering partners; resolve usability findings; complete data-protection and operational-readiness review.
-- **Days 76–90:** Publish an approved static build, record release checksum, train duty teams, and schedule quarterly data/model review.
+- **Days 0–15:** Custodian review of v6 methodology, thresholds, access and disclosure; agree accountable owner.
+- **Days 16–45:** DBKL/MBSA/MBPJ task-based workshops; validate boundaries, population, critical facilities, canopy, land use and intervention inventories.
+- **Days 46–75:** Validate scenario assumptions with meteorological, public-health and engineering partners; complete equity, accessibility and security review.
+- **Days 76–90:** Publish an approved build, record checksums, train duty teams and schedule quarterly data/model review.
 
 ## Approval ask
 
-Approve the package for **controlled pilot use** and nominate: one product owner, one GIS/data custodian, one public-health reviewer, one planning/legal reviewer, and one telecom engineering reviewer. Do not authorize automated approvals or emergency dispatch until the mandatory datasets and validation gates are complete.
+Approve the package for **controlled pilot use** and nominate product, GIS/data, public-health, planning/legal and telecom-engineering owners. Do not authorize automated approvals or emergency dispatch until the required validation gates are complete.

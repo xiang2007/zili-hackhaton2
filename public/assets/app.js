@@ -7,9 +7,11 @@ const radioLetter = (value) => String(value || "?").trim().charAt(0).toUpperCase
 const radioColors = { G: "#00a6a6", L: "#f59e0b", U: "#7c3aed" };
 const clusterColor = "#334155";
 const riskNames = ["Low", "Medium", "High"];
-const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
+const riskColors = ["#ffffff", "#9a5b3f", "#7b3fc6"];
 const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
 const exposurePalette = ["#edf8e9", "#c7e9c0", "#7fcdbb", "#41b6c4", "#f0c44a", "#e56a39", "#a32830"];
+const uhviPalette = ["#fff0d9", "#fdcc8a", "#fc8d59", "#e34a33", "#b30000"];
+const uhviBreaks = [0.394, 0.498, 0.609, 0.722];
 const presets = {
   all: { center: [3.1014, 101.6546], zoom: 11 },
   dbkl: { center: [3.139, 101.6869], zoom: 12 },
@@ -20,6 +22,7 @@ const presets = {
 const state = {
   sites: [],
   grid: null,
+  areas: null,
   surfaceMatrix: null,
   summary: null,
   warming: 0,
@@ -40,8 +43,10 @@ const state = {
 
 let map;
 let basemap;
+let baselineRasterLayer;
 let derivedSurfaceLayer;
 let gridLayer;
+let vulnerabilityLayer;
 let siteLayer;
 let highlightCoverageLayer;
 let proposalLayer;
@@ -51,14 +56,22 @@ let areaSelectionPointerId = null;
 let coverageIndex;
 let selectedCoverageLayer;
 let selectedSignalLayer;
+let selectedTowerPopup;
 
 const coverageBinSize = 0.02;
+const proposedSiteCoverageMeters = 1000; // Planning assumption: median reported range in this dataset.
 const pinMinimumZoom = 15; // Approximately the 300 m Leaflet scale in Klang Valley.
+const clusterZoom = pinMinimumZoom - 1; // Approximately the 500 m Leaflet scale.
 
 function riskForTemp(temp) {
   if (temp < 32) return 0;
   if (temp < 38) return 1;
   return 2;
+}
+
+function uhviClass(value) {
+  const index = uhviBreaks.findIndex((limit) => value < limit);
+  return index === -1 ? uhviPalette.length - 1 : index;
 }
 
 function effectiveSiteTemp(site) {
@@ -114,11 +127,17 @@ function createDerivedSurfaceUrl() {
   canvas.height = height;
   const context = canvas.getContext("2d");
   const image = context.createImageData(width, height);
-  const source = state.gridMode === "exposure" ? matrix.exposure : state.useModelDelta ? matrix.modelScenario : matrix.baseline;
+  // Keep the baseline view tied to the published baseline layout. The optional
+  // model delta belongs to the scenario view and must not alter this layer.
+  const source = state.gridMode === "exposure"
+    ? matrix.exposure
+    : state.gridMode === "scenario" && state.useModelDelta
+      ? matrix.modelScenario
+      : matrix.baseline;
   const adjustment = state.gridMode === "scenario" ? state.warming - state.mitigation : 0;
   const palette = state.gridMode === "exposure" ? exposurePalette : temperaturePalette;
-  const min = state.gridMode === "exposure" ? 0 : 22;
-  const max = state.gridMode === "exposure" ? 100 : 56;
+  const min = state.gridMode === "exposure" ? 0 : 25;
+  const max = state.gridMode === "exposure" ? 100 : 50;
   for (let pixelY = 0; pixelY < height; pixelY += 1) {
     const matrixY = (1 - pixelY / (height - 1)) * (matrix.height - 1);
     for (let pixelX = 0; pixelX < width; pixelX += 1) {
@@ -142,6 +161,16 @@ function gridStyle(feature) {
     fill: true,
     fillColor: "#000000",
     fillOpacity: 0.001,
+  };
+}
+
+function vulnerabilityStyle(feature) {
+  return {
+    color: "#52251e",
+    weight: 1.15,
+    opacity: 0.8,
+    fillColor: uhviPalette[uhviClass(feature.properties.uhvi)],
+    fillOpacity: state.opacity * 0.9,
   };
 }
 
@@ -184,7 +213,7 @@ class TelecomCanvasLayer extends L.Layer {
 
   clusterVisibleSites(size) {
     const zoom = this._map.getZoom();
-    const shouldCluster = zoom >= 11 && zoom < pinMinimumZoom;
+    const shouldCluster = zoom === clusterZoom;
     const largestCoverage = state.areaBounds ? largestCoverageSite(state.areaBounds) : null;
     const cellSize = Math.max(30, 58 - (zoom - 9) * 4);
     const spatialBins = new Map();
@@ -275,9 +304,9 @@ class TelecomCanvasLayer extends L.Layer {
     context.arc(item.x, item.y, radius, 0, Math.PI * 2);
     context.fillStyle = dotColor;
     context.fill();
-    if (item.highlighted || item.selected || this._map.getZoom() >= 14) {
-      context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
-      context.lineWidth = item.selected ? 2.4 : item.highlighted ? 1.2 : 0.6;
+    if (item.risk === 0 || item.highlighted || item.selected || this._map.getZoom() >= 14) {
+      context.strokeStyle = item.risk === 0 ? "rgba(23,36,35,.85)" : item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
+      context.lineWidth = item.selected ? 2.4 : item.highlighted ? 1.2 : item.risk === 0 ? 0.9 : 0.6;
       context.stroke();
     }
     if (item.selected) {
@@ -320,7 +349,7 @@ class TelecomCanvasLayer extends L.Layer {
     context.closePath();
     context.fillStyle = pinColor;
     context.fill();
-    context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.95)" : "rgba(14,31,28,.58)";
+    context.strokeStyle = item.risk === 0 ? "rgba(23,36,35,.88)" : item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.95)" : "rgba(14,31,28,.58)";
     context.lineWidth = item.selected ? 2 : item.highlighted ? 1.3 : 0.65;
     context.stroke();
     context.beginPath();
@@ -362,11 +391,11 @@ class TelecomCanvasLayer extends L.Layer {
     context.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
     context.fillStyle = clusterColor;
     context.fill();
-    context.strokeStyle = item.highlighted ? "#ffffff" : "rgba(255,255,255,.92)";
+    context.strokeStyle = item.risk === 0 ? "rgba(23,36,35,.88)" : "rgba(255,255,255,.92)";
     context.lineWidth = item.highlighted ? 3 : 2;
     context.stroke();
     context.globalAlpha = state.areaBounds && !item.highlighted ? 0.48 : 1;
-    context.fillStyle = item.risk === 1 ? "#172423" : "#ffffff";
+    context.fillStyle = item.risk === 2 ? "#ffffff" : "#172423";
     context.font = `800 ${item.sites.length >= 1000 ? 9 : item.sites.length >= 100 ? 10 : 11}px Inter, system-ui, sans-serif`;
     context.textAlign = "center";
     context.textBaseline = "middle";
@@ -430,12 +459,6 @@ class HighlightCoverageCanvasLayer extends L.Layer {
     const bounds = state.areaBounds;
     if (!bounds) return;
 
-    const southWest = this._map.latLngToContainerPoint([bounds.getSouth(), bounds.getWest()]);
-    const northEast = this._map.latLngToContainerPoint([bounds.getNorth(), bounds.getEast()]);
-    const left = Math.min(southWest.x, northEast.x);
-    const right = Math.max(southWest.x, northEast.x);
-    const top = Math.min(southWest.y, northEast.y);
-    const bottom = Math.max(southWest.y, northEast.y);
     const site = largestCoverageSite(bounds);
     if (!site) return;
     const center = this._map.latLngToContainerPoint([site[2], site[1]]);
@@ -444,21 +467,19 @@ class HighlightCoverageCanvasLayer extends L.Layer {
     const radius = Math.max(1, Math.abs(center.y - northPoint.y));
     const risk = riskForTemp(effectiveSiteTemp(site));
     const [red, green, blue] = hexToRgb(riskColors[risk]);
-    context.save();
-    context.beginPath();
-    context.rect(left, top, right - left, bottom - top);
-    context.clip();
     context.beginPath();
     context.arc(center.x, center.y, radius, 0, Math.PI * 2);
-    context.fillStyle = `rgba(${red},${green},${blue},.14)`;
+    context.fillStyle = `rgba(${red},${green},${blue},.26)`;
     context.fill();
-    context.restore();
     context.beginPath();
     context.arc(center.x, center.y, radius, 0, Math.PI * 2);
     context.strokeStyle = riskColors[risk];
-    context.lineWidth = 2;
+    context.lineWidth = 2.75;
+    context.shadowColor = "rgba(255,255,255,.85)";
+    context.shadowBlur = 3;
     context.setLineDash([7, 5]);
     context.stroke();
+    context.shadowBlur = 0;
   }
 }
 
@@ -467,6 +488,8 @@ function initialiseMap() {
   map.createPane("smoothHeatPane");
   map.getPane("smoothHeatPane").style.zIndex = 350;
   map.getPane("smoothHeatPane").style.pointerEvents = "none";
+  map.createPane("vulnerabilityPane");
+  map.getPane("vulnerabilityPane").style.zIndex = 360;
   map.createPane("selectedCoveragePane");
   map.getPane("selectedCoveragePane").style.zIndex = 375;
   map.getPane("selectedCoveragePane").style.pointerEvents = "none";
@@ -485,6 +508,13 @@ function initialiseMap() {
   const studyBounds = [[state.summary.bounds.south, state.summary.bounds.west], [state.summary.bounds.north, state.summary.bounds.east]];
   map.fitBounds(studyBounds, { padding: [24, 24] });
 
+  baselineRasterLayer = L.imageOverlay("assets/lst_baseline_source_raster.png", studyBounds, {
+    opacity: state.opacity,
+    interactive: false,
+    pane: "smoothHeatPane",
+    className: "baseline-lst-overlay",
+  });
+
   derivedSurfaceLayer = L.imageOverlay(createDerivedSurfaceUrl(), studyBounds, {
     opacity: state.opacity,
     interactive: false,
@@ -499,6 +529,17 @@ function initialiseMap() {
     },
   }).addTo(map);
 
+  vulnerabilityLayer = L.geoJSON(state.areas, {
+    pane: "vulnerabilityPane",
+    style: vulnerabilityStyle,
+    onEachFeature(feature, layer) {
+      layer.options.bubblingMouseEvents = false;
+      layer.on("click", () => inspectArea(feature));
+      layer.on("mouseover", () => layer.setStyle({ weight: 2.4, color: "#172423" }));
+      layer.on("mouseout", () => vulnerabilityLayer.resetStyle(layer));
+    },
+  });
+
   siteLayer = new TelecomCanvasLayer().addTo(map);
   highlightCoverageLayer = new HighlightCoverageCanvasLayer().addTo(map);
   proposalLayer = L.layerGroup().addTo(map);
@@ -512,16 +553,27 @@ function initialiseMap() {
 }
 
 function syncSurfaceLayers() {
-  if (!map || !gridLayer || !derivedSurfaceLayer) return;
+  if (!map || !gridLayer || !baselineRasterLayer || !derivedSurfaceLayer || !vulnerabilityLayer) return;
   const visible = $("#show-grid")?.checked ?? true;
+  if (map.hasLayer(gridLayer)) gridLayer.remove();
+  if (map.hasLayer(baselineRasterLayer)) baselineRasterLayer.remove();
+  if (map.hasLayer(derivedSurfaceLayer)) derivedSurfaceLayer.remove();
+  if (map.hasLayer(vulnerabilityLayer)) vulnerabilityLayer.remove();
   if (!visible) {
-    if (map.hasLayer(gridLayer)) gridLayer.remove();
-    if (map.hasLayer(derivedSurfaceLayer)) derivedSurfaceLayer.remove();
     return;
   }
-  if (!map.hasLayer(gridLayer)) gridLayer.addTo(map);
+  if (state.gridMode === "uhvi") {
+    vulnerabilityLayer.setStyle(vulnerabilityStyle);
+    vulnerabilityLayer.addTo(map);
+    return;
+  }
+  gridLayer.addTo(map);
+  if (state.gridMode === "baseline") {
+    baselineRasterLayer.addTo(map);
+    return;
+  }
   derivedSurfaceLayer.setUrl(createDerivedSurfaceUrl());
-  if (!map.hasLayer(derivedSurfaceLayer)) derivedSurfaceLayer.addTo(map);
+  derivedSurfaceLayer.addTo(map);
 }
 
 function handleMapClick(event) {
@@ -746,35 +798,75 @@ function inspectGrid(feature) {
   $("#inspect-card").hidden = false;
 }
 
+function inspectArea(feature) {
+  clearSelectedSite();
+  const p = feature.properties;
+  const greening = Number(p.green_mean) || 0;
+  $("#inspect-type").textContent = "UHVI constituency";
+  $("#inspect-title").textContent = p.dun;
+  $("#inspect-details").innerHTML = `<div class="inspect-grid">
+    <div><span>UHVI score</span><strong>${p.uhvi.toFixed(3)}</strong></div>
+    <div><span>Regional rank</span><strong>#${formatNumber(p.rank)} of ${formatNumber(state.areas.features.length)}</strong></div>
+    <div><span>Mean LST</span><strong>${p.lst_mean.toFixed(1)} °C</strong></div>
+    <div><span>Population</span><strong>${formatNumber(p.population)}</strong></div>
+    <div><span>Mean income</span><strong>RM ${formatNumber(p.income_mean)}</strong></div>
+    <div><span>Older residents</span><strong>${p.elderly_pct.toFixed(1)}%</strong></div>
+    <div><span>Greening delta</span><strong>${greening >= 0 ? "+" : ""}${greening.toFixed(2)} °C</strong></div>
+    <div><span>State / territory</span><strong>${p.state}</strong></div>
+  </div>`;
+  $("#inspect-card").hidden = false;
+}
+
 function inspectSite(site) {
+  if (selectedTowerPopup) {
+    const previousPopup = selectedTowerPopup;
+    selectedTowerPopup = null;
+    previousPopup.remove();
+  }
   state.selectedSite = site;
   if (selectedCoverageLayer) selectedCoverageLayer.remove();
+  const coverageColor = riskColors[riskForTemp(effectiveSiteTemp(site))];
   selectedCoverageLayer = L.circle([site[2], site[1]], {
     pane: "selectedCoveragePane",
     radius: site[6],
-    color: "#163f37",
-    weight: 2,
-    opacity: 0.9,
-    fillColor: riskColors[riskForTemp(effectiveSiteTemp(site))],
-    fillOpacity: 0.16,
+    color: coverageColor,
+    weight: 2.75,
+    opacity: 1,
+    fillColor: coverageColor,
+    fillOpacity: 0.26,
     dashArray: "6 5",
+    className: "selected-tower-coverage",
     interactive: false,
   }).addTo(map);
   refreshSelectedSignal();
   siteLayer.redraw();
   const scenarioTemp = effectiveSiteTemp(site);
-  $("#inspect-type").textContent = "Selected telecom tower";
-  $("#inspect-title").textContent = site[0];
-  $("#inspect-details").innerHTML = `<div class="inspect-grid">
+  $("#inspect-card").hidden = true;
+  const popup = L.popup({
+    className: "tower-info-popup",
+    closeButton: true,
+    autoPan: true,
+    maxWidth: 330,
+    offset: L.point(0, map.getZoom() >= pinMinimumZoom ? -22 : -10),
+  })
+    .setLatLng([site[2], site[1]])
+    .setContent(`<div class="tower-popup-content"><p class="eyebrow">Selected telecom tower</p><h3>${site[0]}</h3><div class="inspect-grid">
     <div><span>Baseline LST</span><strong>${site[3].toFixed(1)} °C</strong></div>
     <div><span>Scenario LST</span><strong>${scenarioTemp.toFixed(1)} °C</strong></div>
     <div><span>Scenario tier</span><strong>${riskNames[riskForTemp(scenarioTemp)]}</strong></div>
     <div><span>Radio / network</span><strong>${site[7]} · ${site[8]}</strong></div>
     <div><span>Reported range</span><strong>${formatNumber(site[6] / 1000, 1)} km</strong></div>
     <div><span>Samples</span><strong>${formatNumber(site[11])}</strong></div>
+    <div><span>UHVI area</span><strong>${site[12]}</strong></div>
     <div><span>Coordinates</span><strong>${site[2].toFixed(4)}, ${site[1].toFixed(4)}</strong></div>
-  </div>`;
-  $("#inspect-card").hidden = false;
+  </div></div>`)
+    .openOn(map);
+  selectedTowerPopup = popup;
+  popup.on("remove", () => {
+    if (selectedTowerPopup !== popup) return;
+    selectedTowerPopup = null;
+    clearSelectedSite();
+  });
 }
 
 function refreshSelectedSignal() {
@@ -794,6 +886,7 @@ function refreshSelectedSignal() {
   const diameter = Math.ceil(radius * 2);
   const signalScale = Math.max(2, radius / 6);
   const pinOffset = map.getZoom() >= pinMinimumZoom ? 10 : 0;
+  const signalColor = riskColors[riskForTemp(effectiveSiteTemp(site))];
   selectedSignalLayer = L.marker([site[2], site[1]], {
     pane: "selectedSignalPane",
     interactive: false,
@@ -803,7 +896,7 @@ function refreshSelectedSignal() {
       iconSize: [diameter, diameter],
       // Align the pulse centre with the pin's inner circle, not its pointed tip.
       iconAnchor: [radius, radius + pinOffset],
-      html: `<span class="tower-signal-wave" style="--signal-scale:${signalScale}"><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-core"></span></span>`,
+      html: `<span class="tower-signal-wave" style="--signal-scale:${signalScale};--signal-color:${signalColor}"><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-ring"></span><span class="tower-signal-core"></span></span>`,
     }),
   }).addTo(map);
 }
@@ -827,6 +920,11 @@ function inspectCluster(cluster) {
 
 function clearSelectedSite() {
   state.selectedSite = null;
+  if (selectedTowerPopup) {
+    const popup = selectedTowerPopup;
+    selectedTowerPopup = null;
+    popup.remove();
+  }
   if (selectedCoverageLayer) {
     selectedCoverageLayer.remove();
     selectedCoverageLayer = null;
@@ -854,8 +952,9 @@ function updateMetrics() {
   $("#metric-high").textContent = formatNumber(baselineHigh);
   $("#metric-high-share").textContent = `${formatNumber((baselineHigh / state.sites.length) * 100, 1)}% of portfolio`;
   $("#metric-mean").textContent = `${state.summary.baseline.mean.toFixed(1)}°`;
-  const priorityCells = state.grid.features.filter((feature) => feature.properties.exposure_priority !== "Watch").length;
-  $("#metric-grid").textContent = formatNumber(priorityCells);
+  const veryHighAreas = state.areas.features.filter((feature) => feature.properties.uhvi >= uhviBreaks.at(-1)).length;
+  $("#metric-grid").textContent = formatNumber(veryHighAreas);
+  $("#metric-grid-note").textContent = `of ${formatNumber(state.areas.features.length)} constituencies`;
   $("#scenario-high").textContent = formatNumber(high);
   $("#scenario-change").textContent = `${change >= 0 ? "+" : ""}${formatNumber(change)}`;
   $("#scenario-change").style.color = change > 0 ? "#c84737" : change < 0 ? "#2f6d5f" : "inherit";
@@ -870,7 +969,7 @@ function updateScenario() {
   $("#warming-output").textContent = `${state.warming >= 0 ? "+" : ""}${state.warming.toFixed(1)} °C`;
   $("#mitigation-output").textContent = `${state.mitigation.toFixed(1)} °C`;
   $("#net-delta").textContent = `${net >= 0 ? "+" : ""}${net.toFixed(1)} °C`;
-  $("#scenario-caption").textContent = state.useModelDelta ? "Regional + mitigation + local supplied model" : net === 0 ? "Baseline conditions" : "Regional heat less cooling intervention";
+  $("#scenario-caption").textContent = state.useModelDelta ? "Regional + mitigation + v6 greening delta" : net === 0 ? "Baseline conditions" : "Regional heat less cooling intervention";
   updateMetrics();
   gridLayer?.setStyle(gridStyle);
   if (derivedSurfaceLayer && state.gridMode !== "baseline") derivedSurfaceLayer.setUrl(createDerivedSurfaceUrl());
@@ -882,9 +981,10 @@ function updateScenario() {
 function updateMapMode() {
   state.gridMode = $("#grid-mode").value;
   const copy = {
-    baseline: ["Continuous source surface", "Baseline land-surface temperature", "PDF raster · 22.07–53.64 °C · exact values remain available by inspection"],
+    baseline: ["Source raster", "Baseline land-surface temperature", "Raster extracted from the supplied QGIS baseline PDF · 25–50 °C"],
     scenario: ["Predictive scenario", "Smoothed scenario land-surface temperature", "Continuous rendering · thresholds: Low <32 °C · Medium 32–<38 °C · High ≥38 °C"],
     exposure: ["Public-health screening", "Smoothed thermal exposure index", "Continuous display · demographic vulnerability and adaptive capacity are not included"],
+    uhvi: ["Social vulnerability", "Urban Heat Vulnerability Index", "56 inspectable constituencies · Selangor, Kuala Lumpur and Putrajaya"],
   }[state.gridMode];
   $("#map-eyebrow").textContent = copy[0];
   $("#map-title").textContent = copy[1];
@@ -896,11 +996,13 @@ function updateMapMode() {
 
 function renderLegend() {
   if (state.gridMode === "baseline") {
-    $("#map-legend").innerHTML = `<h3>Baseline LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>22.1</span><span>32</span><span>38</span><span>53.6</span></div>`;
+    $("#map-legend").innerHTML = `<h3>Baseline LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>25</span><span>32</span><span>38</span><span>50</span></div>`;
   } else if (state.gridMode === "scenario") {
-    $("#map-legend").innerHTML = `<h3>Scenario LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>22</span><span>32 · Low</span><span>38 · High</span><span>56</span></div>`;
-  } else {
+    $("#map-legend").innerHTML = `<h3>Scenario LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>25</span><span>32 · Low</span><span>38 · High</span><span>50</span></div>`;
+  } else if (state.gridMode === "exposure") {
     $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
+  } else {
+    $("#map-legend").innerHTML = `<h3>UHVI score</h3><div class="uhvi-legend"><span><i style="background:${uhviPalette[0]}"></i>.312–.394</span><span><i style="background:${uhviPalette[1]}"></i>.394–.498</span><span><i style="background:${uhviPalette[2]}"></i>.498–.609</span><span><i style="background:${uhviPalette[3]}"></i>.609–.722</span><span><i style="background:${uhviPalette[4]}"></i>.722–.804</span></div>`;
   }
   $("#map-legend").insertAdjacentHTML("beforeend", `<div class="radio-legend"><span><i style="background:${radioColors.G}">G</i>GSM</span><span><i style="background:${radioColors.L};color:#172423">L</i>LTE</span><span><i style="background:${radioColors.U}">U</i>UMTS</span></div><div class="cluster-legend"><i>12</i><span>Dots above 500 m · groups at 500 m · pins from 300 m</span></div>`);
 }
@@ -958,7 +1060,12 @@ function addCandidate(latlng) {
     showToast("Candidate limit reached (12). Export or remove a site first.");
     return;
   }
-  const candidate = { id: `PROP-${String(state.candidates.length + 1).padStart(2, "0")}`, lat: latlng.lat, lon: latlng.lng };
+  const candidate = {
+    id: `PROP-${String(state.candidates.length + 1).padStart(2, "0")}`,
+    lat: latlng.lat,
+    lon: latlng.lng,
+    coverageRangeMeters: proposedSiteCoverageMeters,
+  };
   scoreCandidate(candidate);
   state.candidates.push(candidate);
   renderCandidates();
@@ -994,8 +1101,21 @@ function renderCandidates() {
     renderCandidates();
   }));
   state.candidates.forEach((candidate) => {
+    const coverageRangeMeters = candidate.coverageRangeMeters ?? proposedSiteCoverageMeters;
+    L.circle([candidate.lat, candidate.lon], {
+      radius: coverageRangeMeters,
+      color: "#163f37",
+      weight: 2,
+      opacity: 0.82,
+      fillColor: "#2f6d5f",
+      fillOpacity: 0.1,
+      dashArray: "6 5",
+      interactive: false,
+    }).addTo(proposalLayer);
     const icon = L.divIcon({ className: "", html: `<div class="proposal-marker"><span>${candidate.id.slice(-2)}</span></div>`, iconSize: [28, 28], iconAnchor: [14, 28] });
-    L.marker([candidate.lat, candidate.lon], { icon }).bindTooltip(`${candidate.id} · score ${candidate.score.toFixed(0)}`).addTo(proposalLayer);
+    L.marker([candidate.lat, candidate.lon], { icon })
+      .bindTooltip(`${candidate.id} · score ${candidate.score.toFixed(0)} · assumed range ${formatNumber(coverageRangeMeters / 1000, 1)} km`)
+      .addTo(proposalLayer);
   });
 }
 
@@ -1007,7 +1127,7 @@ function exportCsv() {
 
 function exportMemo() {
   const rows = state.candidates.map((c) => `<tr><td>${c.id}</td><td>${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</td><td>${c.scenarioTemp.toFixed(1)} °C</td><td>${c.nearestKm.toFixed(2)} km</td><td>${c.score.toFixed(0)}/100</td><td>${c.status}</td></tr>`).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Municipal screening memo</title><style>body{max-width:900px;margin:40px auto;font:14px Arial;color:#172423}h1,h2{font-family:Georgia}small{color:#687371}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:9px;border:1px solid #ccd2cd;text-align:left}th{background:#e7eee9}li{margin:7px 0}.notice{padding:14px;background:#fff3d4;border-left:5px solid #d39a21}@media print{body{margin:12mm}}</style></head><body><small>PHASE 6 · PRELIMINARY DECISION SUPPORT</small><h1>Municipal proposed-site screening memo</h1><p>Generated ${new Date().toLocaleString("en-MY")}. Scenario: regional ${state.warming >= 0 ? "+" : ""}${state.warming.toFixed(1)} °C; cooling ${state.mitigation.toFixed(1)} °C; supplied local delta ${state.useModelDelta ? "included" : "excluded"}. Weighting: thermal resilience ${state.thermalWeight}%; coverage gap ${100 - state.thermalWeight}%.</p><table><thead><tr><th>ID</th><th>Coordinate</th><th>Scenario LST</th><th>Nearest supplied record</th><th>Score</th><th>Screening status</th></tr></thead><tbody>${rows}</tbody></table><div class="notice"><strong>Decision limitation</strong><p>This memo is not planning permission. Scores use modelled land-surface temperature and proximity to supplied telecom records only.</p></div><h2>Mandatory gates before recommendation</h2><ul><li>Zoning, development-plan consistency, and land tenure</li><li>RF coverage, structural design, power and backhaul feasibility</li><li>Environmental, heritage, drainage and emergency-access screening</li><li>Demographic vulnerability, accessibility and distributive-equity review</li><li>Relevant agency, utility, landowner and community consultation</li></ul></body></html>`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Municipal screening memo</title><style>body{max-width:900px;margin:40px auto;font:14px Arial;color:#172423}h1,h2{font-family:Georgia}small{color:#687371}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:9px;border:1px solid #ccd2cd;text-align:left}th{background:#e7eee9}li{margin:7px 0}.notice{padding:14px;background:#fff3d4;border-left:5px solid #d39a21}@media print{body{margin:12mm}}</style></head><body><small>PHASE 6 · PRELIMINARY DECISION SUPPORT</small><h1>Municipal proposed-site screening memo</h1><p>Generated ${new Date().toLocaleString("en-MY")}. Scenario: regional ${state.warming >= 0 ? "+" : ""}${state.warming.toFixed(1)} °C; cooling ${state.mitigation.toFixed(1)} °C; v6 greening delta ${state.useModelDelta ? "included" : "excluded"}. Weighting: thermal resilience ${state.thermalWeight}%; coverage gap ${100 - state.thermalWeight}%.</p><table><thead><tr><th>ID</th><th>Coordinate</th><th>Scenario LST</th><th>Nearest supplied record</th><th>Score</th><th>Screening status</th></tr></thead><tbody>${rows}</tbody></table><div class="notice"><strong>Decision limitation</strong><p>This memo is not planning permission. Scores use modelled land-surface temperature and proximity to supplied telecom records only.</p></div><h2>Mandatory gates before recommendation</h2><ul><li>Zoning, development-plan consistency, and land tenure</li><li>RF coverage, structural design, power and backhaul feasibility</li><li>Environmental, heritage, drainage and emergency-access screening</li><li>Demographic vulnerability, accessibility and distributive-equity review</li><li>Relevant agency, utility, landowner and community consultation</li></ul></body></html>`;
   downloadText("municipal_screening_memo.html", html, "text/html");
 }
 
@@ -1035,6 +1155,37 @@ function showToast(message) {
   toast.classList.add("show");
   clearTimeout(showToast.timeout);
   showToast.timeout = setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+async function setupCurrentUser() {
+  const response = await fetch("/api/auth/status", { credentials: "same-origin" });
+  if (!response.ok) throw new Error("Unable to verify the current session.");
+  const status = await response.json();
+  if (!status.authenticated) {
+    window.location.replace("/login");
+    return false;
+  }
+  $("#current-username").textContent = status.user?.username || "Operator";
+  $("#current-user").hidden = false;
+  $("#logout-button").addEventListener("click", async () => {
+    const button = $("#logout-button");
+    button.disabled = true;
+    button.textContent = "Signing out…";
+    try {
+      const logoutResponse = await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+      });
+      if (!logoutResponse.ok) throw new Error("Logout failed.");
+      window.location.replace("/login");
+    } catch (error) {
+      button.disabled = false;
+      button.textContent = "Log out";
+      showToast(error.message || "Logout failed.");
+    }
+  });
+  return true;
 }
 
 function setupFeedback() {
@@ -1068,7 +1219,9 @@ function bindControls() {
   $("#opacity").addEventListener("input", (event) => {
     state.opacity = Number(event.target.value) / 100;
     $("#opacity-output").textContent = `${event.target.value}%`;
+    baselineRasterLayer.setOpacity(state.opacity);
     derivedSurfaceLayer.setOpacity(state.opacity);
+    vulnerabilityLayer.setStyle(vulnerabilityStyle);
     gridLayer.setStyle(gridStyle);
     siteLayer.redraw();
   });
@@ -1094,6 +1247,8 @@ function bindControls() {
   });
   $("#open-baseline").addEventListener("click", () => $("#baseline-dialog").showModal());
   $("#open-uhvi").addEventListener("click", () => $("#uhvi-dialog").showModal());
+  $("#open-greening").addEventListener("click", () => $("#greening-dialog").showModal());
+  $("#open-industrial").addEventListener("click", () => $("#industrial-dialog").showModal());
   $("#help-button").addEventListener("click", () => $("#help-dialog").showModal());
   $("#open-feedback").addEventListener("click", () => $("#feedback-dialog").showModal());
   setupFeedback();
@@ -1101,18 +1256,21 @@ function bindControls() {
 
 async function initialise() {
   try {
-    const [siteResponse, gridResponse, summaryResponse, surfaceResponse] = await Promise.all([
+    if (!await setupCurrentUser()) return;
+    const [siteResponse, gridResponse, summaryResponse, surfaceResponse, areasResponse] = await Promise.all([
       fetch("data/sites.json"),
       fetch("data/heat_exposure_grid.geojson"),
       fetch("data/summary.json"),
       fetch("data/surface_matrix.json"),
+      fetch("data/dashboard_data_v6_kl.geojson"),
     ]);
-    if (!siteResponse.ok || !gridResponse.ok || !summaryResponse.ok || !surfaceResponse.ok) throw new Error("A dashboard data file could not be loaded.");
+    if (!siteResponse.ok || !gridResponse.ok || !summaryResponse.ok || !surfaceResponse.ok || !areasResponse.ok) throw new Error("A dashboard data file could not be loaded.");
     const siteData = await siteResponse.json();
     state.sites = siteData.rows;
     state.grid = await gridResponse.json();
     state.summary = await summaryResponse.json();
     state.surfaceMatrix = await surfaceResponse.json();
+    state.areas = await areasResponse.json();
     initialiseMap();
     bindControls();
     updateMetrics();
