@@ -48,6 +48,7 @@ let coverageIndex;
 let selectedCoverageLayer;
 
 const coverageBinSize = 0.02;
+const pinMinimumZoom = 15; // Approximately the 300 m Leaflet scale in Klang Valley.
 
 function riskForTemp(temp) {
   if (temp < 32) return 0;
@@ -170,7 +171,8 @@ class TelecomCanvasLayer extends L.Layer {
     this._renderItems = this.clusterVisibleSites(size);
     for (const item of this._renderItems) {
       if (item.sites.length > 1) this.drawCluster(context, item);
-      else this.drawSite(context, item);
+      else if (this._map.getZoom() >= pinMinimumZoom) this.drawSite(context, item);
+      else this.drawDot(context, item);
     }
     context.globalAlpha = 1;
   }
@@ -249,9 +251,31 @@ class TelecomCanvasLayer extends L.Layer {
       cluster.risk = cluster.riskCounts.lastIndexOf(Math.max(...cluster.riskCounts));
       cluster.radius = count > 1
         ? clamp(10 + Math.log10(count) * 4.5, 12, Math.min(24, cellSize / 2 - 2))
-        : zoom >= 15 ? 8 : zoom >= 11 ? 6.5 : 4.25;
+        : zoom >= pinMinimumZoom ? 8 : zoom >= 11 ? 2.5 : 1.55;
       return cluster;
     });
+  }
+
+  drawDot(context, item) {
+    const radius = item.highlighted ? item.radius + 1.15 : item.radius;
+    context.globalAlpha = state.areaBounds && !item.highlighted ? 0.18 : Math.min(0.92, state.opacity + 0.1);
+    context.beginPath();
+    context.arc(item.x, item.y, radius, 0, Math.PI * 2);
+    context.fillStyle = riskColors[item.risk];
+    context.fill();
+    if (item.highlighted || item.selected || this._map.getZoom() >= 14) {
+      context.strokeStyle = item.selected ? "#ffffff" : item.highlighted ? "rgba(255,255,255,.9)" : "rgba(14,31,28,.55)";
+      context.lineWidth = item.selected ? 2.4 : item.highlighted ? 1.2 : 0.6;
+      context.stroke();
+    }
+    if (item.selected) {
+      context.globalAlpha = 1;
+      context.beginPath();
+      context.arc(item.x, item.y, radius + 5, 0, Math.PI * 2);
+      context.strokeStyle = "#163f37";
+      context.lineWidth = 2;
+      context.stroke();
+    }
   }
 
   drawSite(context, item) {
@@ -306,9 +330,10 @@ class TelecomCanvasLayer extends L.Layer {
     let best = null;
     let bestDistance = Infinity;
     for (const item of this._renderItems || []) {
-      const targetY = item.sites.length > 1 ? item.y : item.y - item.radius * 1.2;
+      const isPin = item.sites.length === 1 && this._map.getZoom() >= pinMinimumZoom;
+      const targetY = isPin ? item.y - item.radius * 1.2 : item.y;
       const distance = (item.x - containerPoint.x) ** 2 + (targetY - containerPoint.y) ** 2;
-      const hitRadius = item.sites.length > 1 ? item.radius + 4 : Math.max(radius, item.radius + 4);
+      const hitRadius = item.sites.length > 1 || isPin ? item.radius + 4 : radius;
       if (distance <= hitRadius ** 2 && distance < bestDistance) {
         best = item;
         bestDistance = distance;
@@ -705,7 +730,7 @@ function renderLegend() {
   } else {
     $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
   }
-  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Zoom in to group nearby towers</span></div>`);
+  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Groups appear on zoom · pins at the 300 m scale</span></div>`);
 }
 
 function setPlacementMode(active) {
