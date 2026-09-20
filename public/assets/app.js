@@ -179,7 +179,7 @@ class TelecomCanvasLayer extends L.Layer {
 
   clusterVisibleSites(size) {
     const zoom = this._map.getZoom();
-    const shouldCluster = zoom >= 11;
+    const shouldCluster = zoom >= 11 && zoom < pinMinimumZoom;
     const cellSize = Math.max(30, 58 - (zoom - 9) * 4);
     const spatialBins = new Map();
     const clusters = [];
