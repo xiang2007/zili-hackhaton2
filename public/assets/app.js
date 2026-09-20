@@ -176,6 +176,7 @@ class TelecomCanvasLayer extends L.Layer {
 
   clusterVisibleSites(size) {
     const zoom = this._map.getZoom();
+    const shouldCluster = zoom >= 11;
     const cellSize = Math.max(30, 58 - (zoom - 9) * 4);
     const spatialBins = new Map();
     const clusters = [];
@@ -189,7 +190,7 @@ class TelecomCanvasLayer extends L.Layer {
       const yBin = Math.floor(point.y / cellSize);
       let cluster = null;
       let closestDistance = cellSize ** 2;
-      if (!selected) {
+      if (shouldCluster && !selected) {
         for (let xOffset = -1; xOffset <= 1; xOffset += 1) {
           for (let yOffset = -1; yOffset <= 1; yOffset += 1) {
             const nearby = spatialBins.get(`${highlighted ? "in" : "out"}:${xBin + xOffset}:${yBin + yOffset}`) || [];
@@ -221,9 +222,11 @@ class TelecomCanvasLayer extends L.Layer {
           east: site[1],
         };
         clusters.push(cluster);
-        const key = selected ? `selected:${site[0]}` : `${highlighted ? "in" : "out"}:${xBin}:${yBin}`;
-        if (!spatialBins.has(key)) spatialBins.set(key, []);
-        spatialBins.get(key).push(cluster);
+        if (shouldCluster) {
+          const key = selected ? `selected:${site[0]}` : `${highlighted ? "in" : "out"}:${xBin}:${yBin}`;
+          if (!spatialBins.has(key)) spatialBins.set(key, []);
+          spatialBins.get(key).push(cluster);
+        }
       }
       cluster.sites.push(site);
       cluster.x += point.x;
@@ -652,7 +655,7 @@ function renderLegend() {
   } else {
     $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
   }
-  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Numbered circles group nearby towers</span></div>`);
+  $("#map-legend").insertAdjacentHTML("beforeend", `<div class="cluster-legend"><i>12</i><span>Zoom in to group nearby towers</span></div>`);
 }
 
 function setPlacementMode(active) {
