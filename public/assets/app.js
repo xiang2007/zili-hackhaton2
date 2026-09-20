@@ -5,6 +5,7 @@ const formatNumber = (value, digits = 0) => Number(value).toLocaleString("en-MY"
 const formatClusterCount = (value) => value >= 1000 ? `${formatNumber(value / 1000, value >= 10000 ? 0 : 1)}k` : formatNumber(value);
 const radioLetter = (value) => String(value || "?").trim().charAt(0).toUpperCase() || "?";
 const radioColors = { G: "#00a6a6", L: "#f59e0b", U: "#7c3aed" };
+const clusterColor = "#334155";
 const riskNames = ["Low", "Medium", "High"];
 const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
 const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
@@ -359,7 +360,7 @@ class TelecomCanvasLayer extends L.Layer {
     context.globalAlpha = state.areaBounds && !item.highlighted ? 0.25 : 0.96;
     context.beginPath();
     context.arc(item.x, item.y, item.radius, 0, Math.PI * 2);
-    context.fillStyle = riskColors[item.risk];
+    context.fillStyle = clusterColor;
     context.fill();
     context.strokeStyle = item.highlighted ? "#ffffff" : "rgba(255,255,255,.92)";
     context.lineWidth = item.highlighted ? 3 : 2;

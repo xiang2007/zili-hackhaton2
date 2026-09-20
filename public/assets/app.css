@@ -207,7 +207,7 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .exposure-gradient { background: linear-gradient(90deg, #edf8e9, #c7e9c0, #7fcdbb, #41b6c4, #f0c44a, #e56a39, #a32830); }
 .gradient-labels { display: flex; justify-content: space-between; margin-top: 4px; color: var(--muted); font-size: 8px; }
 .cluster-legend { display: flex; align-items: center; gap: 7px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8px; }
-.cluster-legend i { display: grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border: 2px solid white; border-radius: 50%; color: white; background: var(--green-2); box-shadow: 0 0 0 1px rgba(23,36,35,.18); font-size: 8px; font-style: normal; font-weight: 900; }
+.cluster-legend i { display: grid; place-items: center; width: 22px; height: 22px; flex: 0 0 22px; border: 2px solid white; border-radius: 50%; color: white; background: #334155; box-shadow: 0 0 0 1px rgba(23,36,35,.18); font-size: 8px; font-style: normal; font-weight: 900; }
 .radio-legend { display: flex; gap: 6px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 8px; }
 .radio-legend span { display: flex; align-items: center; gap: 3px; }
 .radio-legend i { display: grid; place-items: center; width: 14px; height: 14px; border-radius: 50%; color: white; font-size: 8px; font-style: normal; font-weight: 900; }
