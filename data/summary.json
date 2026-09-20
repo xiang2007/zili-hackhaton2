@@ -1,0 +1,54 @@
+{
+  "title": "Klang Valley telecom thermal-risk decision dataset",
+  "generatedAt": "2026-09-20T03:00:42.207Z",
+  "source": "OpenCelliD MCC 502 + UHVI DUN evidence (data/opencellid/cells.json)",
+  "sourceSha256": "77b1333449045edae4f1fbf6bcdc0bb35a14750835754ac9649125f61998ce70",
+  "thresholdsC": {
+    "Low": "< 32",
+    "Medium": "32 to < 38",
+    "High": ">= 38"
+  },
+  "rows": 45660,
+  "bounds": {
+    "west": 101.2172,
+    "south": 2.7272,
+    "east": 101.9695,
+    "north": 3.4085
+  },
+  "baseline": {
+    "min": 28.39,
+    "max": 41.96,
+    "mean": 36.4135
+  },
+  "modelScenario": {
+    "min": 28.39,
+    "max": 41.96,
+    "mean": 36.3931
+  },
+  "riskCounts": {
+    "Low": 4975,
+    "Medium": 24638,
+    "High": 16047
+  },
+  "modelScenarioRiskCounts": {
+    "Low": 4975,
+    "Medium": 24638,
+    "High": 16047
+  },
+  "radioCounts": {
+    "GSM": 20102,
+    "LTE": 25477,
+    "NR": 81
+  },
+  "grid": {
+    "cellCount": 2423,
+    "nominalResolutionDegrees": 0.01,
+    "caveat": "Operational thermal-exposure grid; not a demographic Heat Vulnerability Index."
+  },
+  "smoothSurface": {
+    "width": 64,
+    "height": 52,
+    "source": "surface_matrix.json",
+    "caveat": "Visual interpolation only; inspect source grid cells for exact aggregate values."
+  }
+}

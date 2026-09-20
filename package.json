@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "fetch:cells": "node scripts/fetch-opencellid.js"
+    "fetch:cells": "node scripts/fetch-opencellid.js",
+    "build:data": "node scripts/build-dashboard-data.js"
   },
   "dependencies": {
     "express": "^4.19.2"

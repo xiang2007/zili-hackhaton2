@@ -3,6 +3,7 @@
 require('../src/env');
 
 const opencellid = require('../src/opencellid');
+const dashboardData = require('../src/dashboard-data');
 
 function parseArgs(argv) {
   const options = {};
@@ -20,6 +21,8 @@ async function main() {
     console.log(`OpenCelliD cells cached: ${meta.count}`);
     console.log(`Fetched at: ${meta.fetched_at}`);
     console.log(`Next refresh: ${meta.next_refresh_at}`);
+    const built = dashboardData.build();
+    console.log(`Dashboard data built: ${built.sites.toLocaleString()} sites, ${built.gridCells.toLocaleString()} grid cells`);
   } catch (err) {
     console.error(`OpenCelliD refresh failed: ${err.message}`);
     process.exit(1);

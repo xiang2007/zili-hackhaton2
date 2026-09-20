@@ -7,6 +7,7 @@ const path = require('path');
 const express = require('express');
 const geo = require('./src/geo');
 const opencellid = require('./src/opencellid');
+const dashboardData = require('./src/dashboard-data');
 const scheduler = require('./src/scheduler');
 
 const app = express();
@@ -87,7 +88,8 @@ app.get('/api/cells/meta', (req, res) => {
 app.post('/api/cells/refresh', async (req, res) => {
   try {
     const meta = await opencellid.refresh();
-    res.json({ ok: true, count: meta.count, fetched_at: meta.fetched_at });
+    const built = dashboardData.build();
+    res.json({ ok: true, count: meta.count, fetched_at: meta.fetched_at, sites: built.sites, grid_cells: built.gridCells });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }

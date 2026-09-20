@@ -1,0 +1,553 @@
+const $ = (selector) => document.querySelector(selector);
+const $$ = (selector) => [...document.querySelectorAll(selector)];
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const formatNumber = (value, digits = 0) => Number(value).toLocaleString("en-MY", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const riskNames = ["Low", "Medium", "High"];
+const riskColors = ["#30b9d9", "#f5c83a", "#e9573f"];
+const temperaturePalette = ["#34215d", "#355fb8", "#2a9ddd", "#22cfbd", "#75e55f", "#dbea3b", "#ffb12b", "#f16a24", "#9f1f16"];
+const exposurePalette = ["#edf8e9", "#c7e9c0", "#7fcdbb", "#41b6c4", "#f0c44a", "#e56a39", "#a32830"];
+const presets = {
+  all: { center: [3.1014, 101.6546], zoom: 11 },
+  dbkl: { center: [3.139, 101.6869], zoom: 12 },
+  mbsa: { center: [3.0738, 101.5183], zoom: 12 },
+  mbpj: { center: [3.1073, 101.6067], zoom: 13 },
+};
+
+const state = {
+  sites: [],
+  grid: null,
+  surfaceMatrix: null,
+  summary: null,
+  warming: 0,
+  mitigation: 0,
+  useModelDelta: false,
+  gridMode: "baseline",
+  opacity: 0.72,
+  placing: false,
+  thermalWeight: 60,
+  candidates: [],
+  proposalMarkers: new Map(),
+};
+
+let map;
+let basemap;
+let derivedSurfaceLayer;
+let gridLayer;
+let siteLayer;
+let proposalLayer;
+
+function riskForTemp(temp) {
+  if (temp < 32) return 0;
+  if (temp < 38) return 1;
+  return 2;
+}
+
+function effectiveSiteTemp(site) {
+  return site[3] + state.warming - state.mitigation + (state.useModelDelta ? site[5] : 0);
+}
+
+function effectiveGridTemp(properties) {
+  const baseline = state.useModelDelta ? properties.model_scenario_lst_c : properties.mean_lst_c;
+  return baseline + state.warming - state.mitigation;
+}
+
+function colorRamp(value, min, max, palette) {
+  const t = clamp((value - min) / (max - min), 0, 0.9999);
+  return palette[Math.floor(t * palette.length)];
+}
+
+function hexToRgb(hex) {
+  return [Number.parseInt(hex.slice(1, 3), 16), Number.parseInt(hex.slice(3, 5), 16), Number.parseInt(hex.slice(5, 7), 16)];
+}
+
+const paletteCache = new Map();
+
+function continuousColor(value, min, max, palette) {
+  const position = clamp((value - min) / (max - min), 0, 1) * (palette.length - 1);
+  const lowerIndex = Math.floor(position);
+  const upperIndex = Math.min(palette.length - 1, lowerIndex + 1);
+  const blend = position - lowerIndex;
+  if (!paletteCache.has(palette)) paletteCache.set(palette, palette.map(hexToRgb));
+  const rgbPalette = paletteCache.get(palette);
+  const lower = rgbPalette[lowerIndex];
+  const upper = rgbPalette[upperIndex];
+  return lower.map((channel, index) => Math.round(channel + (upper[index] - channel) * blend));
+}
+
+function bilinearValue(values, x, y, width, height) {
+  const x0 = Math.floor(x);
+  const y0 = Math.floor(y);
+  const x1 = Math.min(width - 1, x0 + 1);
+  const y1 = Math.min(height - 1, y0 + 1);
+  const xBlend = x - x0;
+  const yBlend = y - y0;
+  const top = values[y0 * width + x0] * (1 - xBlend) + values[y0 * width + x1] * xBlend;
+  const bottom = values[y1 * width + x0] * (1 - xBlend) + values[y1 * width + x1] * xBlend;
+  return top * (1 - yBlend) + bottom * yBlend;
+}
+
+function createDerivedSurfaceUrl() {
+  const matrix = state.surfaceMatrix;
+  const width = 420;
+  const height = Math.round(width * (matrix.bounds.north - matrix.bounds.south) / (matrix.bounds.east - matrix.bounds.west));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  const image = context.createImageData(width, height);
+  const source = state.gridMode === "exposure" ? matrix.exposure : state.useModelDelta ? matrix.modelScenario : matrix.baseline;
+  const adjustment = state.gridMode === "scenario" ? state.warming - state.mitigation : 0;
+  const palette = state.gridMode === "exposure" ? exposurePalette : temperaturePalette;
+  const min = state.gridMode === "exposure" ? 0 : 22;
+  const max = state.gridMode === "exposure" ? 100 : 56;
+  for (let pixelY = 0; pixelY < height; pixelY += 1) {
+    const matrixY = (1 - pixelY / (height - 1)) * (matrix.height - 1);
+    for (let pixelX = 0; pixelX < width; pixelX += 1) {
+      const matrixX = (pixelX / (width - 1)) * (matrix.width - 1);
+      const value = bilinearValue(source, matrixX, matrixY, matrix.width, matrix.height) + adjustment;
+      const color = continuousColor(value, min, max, palette);
+      const offset = (pixelY * width + pixelX) * 4;
+      image.data[offset] = color[0];
+      image.data[offset + 1] = color[1];
+      image.data[offset + 2] = color[2];
+      image.data[offset + 3] = 255;
+    }
+  }
+  context.putImageData(image, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function gridStyle(feature) {
+  return {
+    stroke: false,
+    fill: true,
+    fillColor: "#000000",
+    fillOpacity: 0.001,
+  };
+}
+
+class TelecomCanvasLayer extends L.Layer {
+  onAdd(targetMap) {
+    this._map = targetMap;
+    this._canvas = L.DomUtil.create("canvas", "telecom-canvas-layer");
+    this._canvas.style.position = "absolute";
+    this._canvas.style.pointerEvents = "none";
+    targetMap.getPanes().overlayPane.appendChild(this._canvas);
+    targetMap.on("moveend zoomend resize", this.redraw, this);
+    this.redraw();
+  }
+
+  onRemove(targetMap) {
+    L.DomUtil.remove(this._canvas);
+    targetMap.off("moveend zoomend resize", this.redraw, this);
+  }
+
+  redraw() {
+    if (!this._map || !this._canvas) return;
+    const size = this._map.getSize();
+    const ratio = window.devicePixelRatio || 1;
+    this._canvas.width = size.x * ratio;
+    this._canvas.height = size.y * ratio;
+    this._canvas.style.width = `${size.x}px`;
+    this._canvas.style.height = `${size.y}px`;
+    const topLeft = this._map.containerPointToLayerPoint([0, 0]);
+    L.DomUtil.setPosition(this._canvas, topLeft);
+    const context = this._canvas.getContext("2d");
+    context.scale(ratio, ratio);
+    context.globalAlpha = Math.min(0.92, state.opacity + 0.1);
+    const radius = this._map.getZoom() >= 13 ? 2.25 : 1.55;
+    for (const site of state.sites) {
+      const point = this._map.latLngToContainerPoint([site[2], site[1]]);
+      if (point.x < -4 || point.y < -4 || point.x > size.x + 4 || point.y > size.y + 4) continue;
+      const risk = riskForTemp(effectiveSiteTemp(site));
+      context.beginPath();
+      context.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      context.fillStyle = riskColors[risk];
+      context.fill();
+      if (this._map.getZoom() >= 14) {
+        context.strokeStyle = "rgba(14,31,28,.55)";
+        context.lineWidth = 0.6;
+        context.stroke();
+      }
+    }
+  }
+
+  nearestAt(containerPoint, radius = 8) {
+    let best = null;
+    let bestDistance = radius * radius;
+    for (const site of state.sites) {
+      const point = this._map.latLngToContainerPoint([site[2], site[1]]);
+      const distance = (point.x - containerPoint.x) ** 2 + (point.y - containerPoint.y) ** 2;
+      if (distance < bestDistance) {
+        best = site;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+}
+
+function initialiseMap() {
+  map = L.map("map", { zoomControl: false, preferCanvas: true, minZoom: 9, maxZoom: 17 });
+  map.createPane("smoothHeatPane");
+  map.getPane("smoothHeatPane").style.zIndex = 350;
+  map.getPane("smoothHeatPane").style.pointerEvents = "none";
+  L.control.zoom({ position: "topleft" }).addTo(map);
+  L.control.scale({ position: "bottomright", imperial: false }).addTo(map);
+  basemap = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap contributors",
+  }).addTo(map);
+  const studyBounds = [[state.summary.bounds.south, state.summary.bounds.west], [state.summary.bounds.north, state.summary.bounds.east]];
+  map.fitBounds(studyBounds, { padding: [24, 24] });
+
+  derivedSurfaceLayer = L.imageOverlay(createDerivedSurfaceUrl(), studyBounds, {
+    opacity: state.opacity,
+    interactive: false,
+    pane: "smoothHeatPane",
+    className: "derived-heat-overlay",
+  });
+
+  gridLayer = L.geoJSON(state.grid, {
+    style: gridStyle,
+    onEachFeature(feature, layer) {
+      layer.on("click", () => inspectGrid(feature));
+    },
+  }).addTo(map);
+
+  siteLayer = new TelecomCanvasLayer().addTo(map);
+  proposalLayer = L.layerGroup().addTo(map);
+  map.on("click", handleMapClick);
+}
+
+function syncSurfaceLayers() {
+  if (!map || !gridLayer || !derivedSurfaceLayer) return;
+  const visible = $("#show-grid")?.checked ?? true;
+  if (!visible) {
+    if (map.hasLayer(gridLayer)) gridLayer.remove();
+    if (map.hasLayer(derivedSurfaceLayer)) derivedSurfaceLayer.remove();
+    return;
+  }
+  if (!map.hasLayer(gridLayer)) gridLayer.addTo(map);
+  derivedSurfaceLayer.setUrl(createDerivedSurfaceUrl());
+  if (!map.hasLayer(derivedSurfaceLayer)) derivedSurfaceLayer.addTo(map);
+}
+
+function handleMapClick(event) {
+  if (state.placing) {
+    addCandidate(event.latlng);
+    return;
+  }
+  const site = siteLayer.nearestAt(event.containerPoint, map.getZoom() >= 13 ? 10 : 7);
+  if (site) inspectSite(site);
+}
+
+function inspectGrid(feature) {
+  const p = feature.properties;
+  const scenarioTemp = effectiveGridTemp(p);
+  $("#inspect-type").textContent = "Thermal evidence cell";
+  $("#inspect-title").textContent = p.cell_id;
+  $("#inspect-details").innerHTML = `<div class="inspect-grid">
+    <div><span>Baseline mean</span><strong>${p.mean_lst_c.toFixed(1)} °C</strong></div>
+    <div><span>Scenario mean</span><strong>${scenarioTemp.toFixed(1)} °C</strong></div>
+    <div><span>Scenario tier</span><strong>${riskNames[riskForTemp(scenarioTemp)]}</strong></div>
+    <div><span>Exposure index</span><strong>${p.exposure_index}/100</strong></div>
+    <div><span>Records</span><strong>${formatNumber(p.records)}</strong></div>
+    <div><span>High-risk share</span><strong>${formatNumber(p.high_risk_share * 100, 0)}%</strong></div>
+  </div>`;
+  $("#inspect-card").hidden = false;
+}
+
+function inspectSite(site) {
+  const scenarioTemp = effectiveSiteTemp(site);
+  $("#inspect-type").textContent = "Telecom record";
+  $("#inspect-title").textContent = site[0];
+  $("#inspect-details").innerHTML = `<div class="inspect-grid">
+    <div><span>Baseline LST</span><strong>${site[3].toFixed(1)} °C</strong></div>
+    <div><span>Scenario LST</span><strong>${scenarioTemp.toFixed(1)} °C</strong></div>
+    <div><span>Scenario tier</span><strong>${riskNames[riskForTemp(scenarioTemp)]}</strong></div>
+    <div><span>Radio / network</span><strong>${site[7]} · ${site[8]}</strong></div>
+    <div><span>Reported range</span><strong>${formatNumber(site[6] / 1000, 1)} km</strong></div>
+    <div><span>Samples</span><strong>${formatNumber(site[11])}</strong></div>
+  </div>`;
+  $("#inspect-card").hidden = false;
+}
+
+function updateMetrics() {
+  let high = 0;
+  let sum = 0;
+  for (const site of state.sites) {
+    const temp = effectiveSiteTemp(site);
+    sum += temp;
+    if (riskForTemp(temp) === 2) high += 1;
+  }
+  const baselineHigh = state.summary.riskCounts.High;
+  const change = high - baselineHigh;
+  const mean = sum / state.sites.length;
+  $("#metric-sites").textContent = formatNumber(state.sites.length);
+  $("#metric-high").textContent = formatNumber(baselineHigh);
+  $("#metric-high-share").textContent = `${formatNumber((baselineHigh / state.sites.length) * 100, 1)}% of portfolio`;
+  $("#metric-mean").textContent = `${state.summary.baseline.mean.toFixed(1)}°`;
+  const priorityCells = state.grid.features.filter((feature) => feature.properties.exposure_priority !== "Watch").length;
+  $("#metric-grid").textContent = formatNumber(priorityCells);
+  $("#scenario-high").textContent = formatNumber(high);
+  $("#scenario-change").textContent = `${change >= 0 ? "+" : ""}${formatNumber(change)}`;
+  $("#scenario-change").style.color = change > 0 ? "#c84737" : change < 0 ? "#2f6d5f" : "inherit";
+  $("#scenario-mean").textContent = `${mean.toFixed(1)} °C`;
+}
+
+function updateScenario() {
+  state.warming = Number($("#warming").value);
+  state.mitigation = Number($("#mitigation").value);
+  state.useModelDelta = $("#model-delta").checked;
+  const net = state.warming - state.mitigation;
+  $("#warming-output").textContent = `${state.warming >= 0 ? "+" : ""}${state.warming.toFixed(1)} °C`;
+  $("#mitigation-output").textContent = `${state.mitigation.toFixed(1)} °C`;
+  $("#net-delta").textContent = `${net >= 0 ? "+" : ""}${net.toFixed(1)} °C`;
+  $("#scenario-caption").textContent = state.useModelDelta ? "Regional + mitigation + local supplied model" : net === 0 ? "Baseline conditions" : "Regional heat less cooling intervention";
+  updateMetrics();
+  gridLayer?.setStyle(gridStyle);
+  if (derivedSurfaceLayer && state.gridMode !== "baseline") derivedSurfaceLayer.setUrl(createDerivedSurfaceUrl());
+  siteLayer?.redraw();
+  recalculateCandidates();
+}
+
+function updateMapMode() {
+  state.gridMode = $("#grid-mode").value;
+  const copy = {
+    baseline: ["Continuous source surface", "Baseline land-surface temperature", "PDF raster · 22.07–53.64 °C · exact values remain available by inspection"],
+    scenario: ["Predictive scenario", "Smoothed scenario land-surface temperature", "Continuous rendering · thresholds: Low <32 °C · Medium 32–<38 °C · High ≥38 °C"],
+    exposure: ["Public-health screening", "Smoothed thermal exposure index", "Continuous display · demographic vulnerability and adaptive capacity are not included"],
+  }[state.gridMode];
+  $("#map-eyebrow").textContent = copy[0];
+  $("#map-title").textContent = copy[1];
+  $("#map-subtitle").textContent = copy[2];
+  gridLayer.setStyle(gridStyle);
+  syncSurfaceLayers();
+  renderLegend();
+}
+
+function renderLegend() {
+  if (state.gridMode === "baseline") {
+    $("#map-legend").innerHTML = `<h3>Baseline LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>22.1</span><span>32</span><span>38</span><span>53.6</span></div>`;
+  } else if (state.gridMode === "scenario") {
+    $("#map-legend").innerHTML = `<h3>Scenario LST (°C)</h3><div class="gradient-bar baseline-gradient"></div><div class="gradient-labels"><span>22</span><span>32 · Low</span><span>38 · High</span><span>56</span></div>`;
+  } else {
+    $("#map-legend").innerHTML = `<h3>Thermal exposure index</h3><div class="gradient-bar exposure-gradient"></div><div class="gradient-labels"><span>0</span><span>50 · Elevated</span><span>70 · Critical</span><span>100</span></div>`;
+  }
+}
+
+function setPlacementMode(active) {
+  state.placing = active;
+  $("#place-site").textContent = active ? "Cancel placement" : "Place proposed site";
+  $("#place-site").classList.toggle("secondary-button", active);
+  $("#place-site").classList.toggle("primary-button", !active);
+  $("#place-hint").textContent = active ? "Placement mode is on — click any map location." : "Placement mode is off.";
+  $("#map").style.cursor = active ? "crosshair" : "";
+}
+
+function haversine(aLat, aLon, bLat, bLon) {
+  const toRad = (degrees) => degrees * Math.PI / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLon = toRad(bLon - aLon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLon / 2) ** 2;
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function estimateLocation(lat, lon) {
+  const nearest = [];
+  for (const site of state.sites) {
+    const distance = haversine(lat, lon, site[2], site[1]);
+    if (nearest.length < 12 || distance < nearest[nearest.length - 1].distance) {
+      nearest.push({ distance, site });
+      nearest.sort((a, b) => a.distance - b.distance);
+      if (nearest.length > 12) nearest.pop();
+    }
+  }
+  let weightedTemp = 0;
+  let weights = 0;
+  for (const item of nearest) {
+    const weight = 1 / Math.max(item.distance, 0.05);
+    weightedTemp += effectiveSiteTemp(item.site) * weight;
+    weights += weight;
+  }
+  return { nearestKm: nearest[0]?.distance ?? 0, estimatedTemp: weightedTemp / weights };
+}
+
+function scoreCandidate(candidate) {
+  const estimate = estimateLocation(candidate.lat, candidate.lon);
+  candidate.nearestKm = estimate.nearestKm;
+  candidate.scenarioTemp = estimate.estimatedTemp;
+  candidate.thermalScore = clamp(((42 - candidate.scenarioTemp) / 14) * 100, 0, 100);
+  candidate.coverageScore = clamp((candidate.nearestKm / 3) * 100, 0, 100);
+  candidate.score = (candidate.thermalScore * state.thermalWeight + candidate.coverageScore * (100 - state.thermalWeight)) / 100;
+  candidate.status = candidate.score >= 70 ? "Recommend for study" : candidate.score >= 45 ? "Conditional review" : "Hold / redesign";
+}
+
+function addCandidate(latlng) {
+  if (state.candidates.length >= 12) {
+    showToast("Candidate limit reached (12). Export or remove a site first.");
+    return;
+  }
+  const candidate = { id: `PROP-${String(state.candidates.length + 1).padStart(2, "0")}`, lat: latlng.lat, lon: latlng.lng };
+  scoreCandidate(candidate);
+  state.candidates.push(candidate);
+  renderCandidates();
+  setPlacementMode(false);
+  switchTab("approval");
+  showToast(`${candidate.id} added to the approval register.`);
+}
+
+function recalculateCandidates() {
+  for (const candidate of state.candidates) scoreCandidate(candidate);
+  renderCandidates();
+}
+
+function renderCandidates() {
+  $("#candidate-count").textContent = `${state.candidates.length} ${state.candidates.length === 1 ? "site" : "sites"}`;
+  $("#export-csv").disabled = state.candidates.length === 0;
+  $("#export-memo").disabled = state.candidates.length === 0;
+  proposalLayer?.clearLayers();
+  if (!state.candidates.length) {
+    $("#candidate-list").innerHTML = `<div class="empty-state"><span>＋</span><strong>No proposed sites</strong><p>Use Scenario lab → Place proposed site, then click the map.</p></div>`;
+    return;
+  }
+  $("#candidate-list").innerHTML = state.candidates.map((candidate) => {
+    const badgeClass = candidate.score >= 70 ? "" : candidate.score >= 45 ? "conditional" : "hold";
+    return `<article class="candidate-item">
+      <div class="candidate-head"><div><h3>${candidate.id}</h3><p>${candidate.lat.toFixed(5)}, ${candidate.lon.toFixed(5)}</p></div><span class="score-badge ${badgeClass}">${candidate.score.toFixed(0)}</span></div>
+      <div class="candidate-stats"><div><span>Scenario LST</span><strong>${candidate.scenarioTemp.toFixed(1)} °C</strong></div><div><span>Nearest record</span><strong>${candidate.nearestKm.toFixed(2)} km</strong></div><div><span>Status</span><strong>${candidate.status}</strong></div></div>
+      <button class="candidate-remove" data-remove="${candidate.id}" aria-label="Remove ${candidate.id} from candidate register">Remove</button>
+    </article>`;
+  }).join("");
+  $$('[data-remove]').forEach((button) => button.addEventListener("click", () => {
+    state.candidates = state.candidates.filter((candidate) => candidate.id !== button.dataset.remove);
+    renderCandidates();
+  }));
+  state.candidates.forEach((candidate) => {
+    const icon = L.divIcon({ className: "", html: `<div class="proposal-marker"><span>${candidate.id.slice(-2)}</span></div>`, iconSize: [28, 28], iconAnchor: [14, 28] });
+    L.marker([candidate.lat, candidate.lon], { icon }).bindTooltip(`${candidate.id} · score ${candidate.score.toFixed(0)}`).addTo(proposalLayer);
+  });
+}
+
+function exportCsv() {
+  const header = ["candidate_id", "latitude", "longitude", "scenario_lst_c", "nearest_record_km", "thermal_score", "coverage_gap_score", "composite_score", "screening_status"];
+  const rows = state.candidates.map((c) => [c.id, c.lat.toFixed(6), c.lon.toFixed(6), c.scenarioTemp.toFixed(2), c.nearestKm.toFixed(3), c.thermalScore.toFixed(1), c.coverageScore.toFixed(1), c.score.toFixed(1), c.status]);
+  downloadText("municipal_candidate_register.csv", [header, ...rows].map((row) => row.map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"), "text/csv");
+}
+
+function exportMemo() {
+  const rows = state.candidates.map((c) => `<tr><td>${c.id}</td><td>${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}</td><td>${c.scenarioTemp.toFixed(1)} °C</td><td>${c.nearestKm.toFixed(2)} km</td><td>${c.score.toFixed(0)}/100</td><td>${c.status}</td></tr>`).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Municipal screening memo</title><style>body{max-width:900px;margin:40px auto;font:14px Arial;color:#172423}h1,h2{font-family:Georgia}small{color:#687371}table{width:100%;border-collapse:collapse;margin:20px 0}th,td{padding:9px;border:1px solid #ccd2cd;text-align:left}th{background:#e7eee9}li{margin:7px 0}.notice{padding:14px;background:#fff3d4;border-left:5px solid #d39a21}@media print{body{margin:12mm}}</style></head><body><small>PHASE 6 · PRELIMINARY DECISION SUPPORT</small><h1>Municipal proposed-site screening memo</h1><p>Generated ${new Date().toLocaleString("en-MY")}. Scenario: regional ${state.warming >= 0 ? "+" : ""}${state.warming.toFixed(1)} °C; cooling ${state.mitigation.toFixed(1)} °C; supplied local delta ${state.useModelDelta ? "included" : "excluded"}. Weighting: thermal resilience ${state.thermalWeight}%; coverage gap ${100 - state.thermalWeight}%.</p><table><thead><tr><th>ID</th><th>Coordinate</th><th>Scenario LST</th><th>Nearest supplied record</th><th>Score</th><th>Screening status</th></tr></thead><tbody>${rows}</tbody></table><div class="notice"><strong>Decision limitation</strong><p>This memo is not planning permission. Scores use modelled land-surface temperature and proximity to supplied telecom records only.</p></div><h2>Mandatory gates before recommendation</h2><ul><li>Zoning, development-plan consistency, and land tenure</li><li>RF coverage, structural design, power and backhaul feasibility</li><li>Environmental, heritage, drainage and emergency-access screening</li><li>Demographic vulnerability, accessibility and distributive-equity review</li><li>Relevant agency, utility, landowner and community consultation</li></ul></body></html>`;
+  downloadText("municipal_screening_memo.html", html, "text/html");
+}
+
+function downloadText(filename, content, type) {
+  const url = URL.createObjectURL(new Blob([content], { type }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+}
+
+function switchTab(name) {
+  $$(".tab").forEach((tab) => {
+    const active = tab.dataset.panel === name;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-current", active ? "page" : "false");
+  });
+  $$(".panel").forEach((panel) => panel.classList.toggle("active", panel.id === `panel-${name}`));
+}
+
+function showToast(message) {
+  const toast = $("#toast");
+  toast.textContent = message;
+  toast.classList.add("show");
+  clearTimeout(showToast.timeout);
+  showToast.timeout = setTimeout(() => toast.classList.remove("show"), 2600);
+}
+
+function setupFeedback() {
+  const responses = JSON.parse(localStorage.getItem("heat-dashboard-feedback") || "[]");
+  const updateCount = () => { $("#feedback-count").textContent = `${responses.length} saved ${responses.length === 1 ? "response" : "responses"}`; };
+  updateCount();
+  $("#feedback-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const data = Object.fromEntries(new FormData(event.target));
+    responses.push({ ...data, recordedAt: new Date().toISOString(), release: "phase6-v1.1.0" });
+    localStorage.setItem("heat-dashboard-feedback", JSON.stringify(responses));
+    event.target.reset();
+    updateCount();
+    showToast("Feedback saved locally. Export it before clearing this browser.");
+  });
+  $("#export-feedback").addEventListener("click", () => downloadText("dashboard_feedback_log.json", JSON.stringify({ exportedAt: new Date().toISOString(), responses }, null, 2), "application/json"));
+}
+
+function bindControls() {
+  $$(".tab").forEach((tab) => tab.addEventListener("click", () => switchTab(tab.dataset.panel)));
+  $("#warming").addEventListener("input", updateScenario);
+  $("#mitigation").addEventListener("input", updateScenario);
+  $("#model-delta").addEventListener("change", updateScenario);
+  $("#reset-scenario").addEventListener("click", () => {
+    $("#warming").value = 0;
+    $("#mitigation").value = 0;
+    $("#model-delta").checked = false;
+    updateScenario();
+  });
+  $("#grid-mode").addEventListener("change", updateMapMode);
+  $("#opacity").addEventListener("input", (event) => {
+    state.opacity = Number(event.target.value) / 100;
+    $("#opacity-output").textContent = `${event.target.value}%`;
+    derivedSurfaceLayer.setOpacity(state.opacity);
+    gridLayer.setStyle(gridStyle);
+    siteLayer.redraw();
+  });
+  $("#show-grid").addEventListener("change", syncSurfaceLayers);
+  $("#show-sites").addEventListener("change", (event) => event.target.checked ? siteLayer.addTo(map) : siteLayer.remove());
+  $("#show-basemap").addEventListener("change", (event) => event.target.checked ? basemap.addTo(map) : basemap.remove());
+  $("#reset-map").addEventListener("click", () => map.fitBounds([[state.summary.bounds.south, state.summary.bounds.west], [state.summary.bounds.north, state.summary.bounds.east]], { padding: [24, 24] }));
+  $("#view-preset").addEventListener("change", (event) => map.flyTo(presets[event.target.value].center, presets[event.target.value].zoom));
+  $("#place-site").addEventListener("click", () => setPlacementMode(!state.placing));
+  $("#thermal-weight").addEventListener("input", (event) => {
+    state.thermalWeight = Number(event.target.value);
+    $("#thermal-weight-output").textContent = `${state.thermalWeight}%`;
+    $("#coverage-weight").textContent = `${100 - state.thermalWeight}%`;
+    recalculateCandidates();
+  });
+  $("#export-csv").addEventListener("click", exportCsv);
+  $("#export-memo").addEventListener("click", exportMemo);
+  $("#close-inspect").addEventListener("click", () => { $("#inspect-card").hidden = true; });
+  $("#open-baseline").addEventListener("click", () => $("#baseline-dialog").showModal());
+  $("#open-uhvi").addEventListener("click", () => $("#uhvi-dialog").showModal());
+  $("#help-button").addEventListener("click", () => $("#help-dialog").showModal());
+  $("#open-feedback").addEventListener("click", () => $("#feedback-dialog").showModal());
+  setupFeedback();
+}
+
+async function initialise() {
+  try {
+    const [siteResponse, gridResponse, summaryResponse, surfaceResponse] = await Promise.all([
+      fetch("data/sites.json"),
+      fetch("data/heat_exposure_grid.geojson"),
+      fetch("data/summary.json"),
+      fetch("data/surface_matrix.json"),
+    ]);
+    if (!siteResponse.ok || !gridResponse.ok || !summaryResponse.ok || !surfaceResponse.ok) throw new Error("A dashboard data file could not be loaded.");
+    const siteData = await siteResponse.json();
+    state.sites = siteData.rows;
+    state.grid = await gridResponse.json();
+    state.summary = await summaryResponse.json();
+    state.surfaceMatrix = await surfaceResponse.json();
+    initialiseMap();
+    bindControls();
+    updateMetrics();
+    updateScenario();
+    updateMapMode();
+  } catch (error) {
+    console.error(error);
+    document.body.innerHTML = `<main style="max-width:720px;margin:70px auto;padding:24px;font:16px system-ui"><h1>Dashboard data did not load</h1><p>${error.message}</p><p>Run <code>npm run build:data</code>, then start this project through the included local server with <code>npm start</code>. Opening index.html directly is not supported because browsers block local data requests.</p></main>`;
+  }
+}
+
+initialise();

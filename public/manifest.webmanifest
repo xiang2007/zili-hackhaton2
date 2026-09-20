@@ -1,0 +1,9 @@
+{
+  "name": "Klang Valley Heat Decision Room",
+  "short_name": "Heat Decision Room",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f6f4ed",
+  "theme_color": "#163f37",
+  "description": "Municipal heat-risk mapping and preliminary scenario screening."
+}

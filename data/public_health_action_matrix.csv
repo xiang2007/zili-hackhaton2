@@ -1,0 +1,5 @@
+risk_view,trigger,planning_use,public_health_or_civil_defense_action,restriction
+Baseline telecom risk,Predicted LST >= 38 C,Asset continuity screening,Review cooling redundancy and worker heat-safety arrangements,Not a human heat-alert threshold
+Scenario telecom risk,Scenario LST >= 38 C,Stress-test asset portfolio,Pre-position continuity checks and confirm escalation contacts,Requires current meteorological warning before activation
+Thermal exposure priority,Exposure priority = Critical,Area-level screening,Cross-reference with population sensitivity facilities and response capacity,Do not dispatch or allocate health resources from exposure alone
+UHVI 2024 reference,Higher UHVI class,Strategic vulnerability context,Validate against authoritative vector zones and current vulnerable-population registers,PDF is not parcel-accurate or dispatch-ready

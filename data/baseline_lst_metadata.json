@@ -1,0 +1,26 @@
+{
+  "title": "Baseline Heatmap — Klang Valley",
+  "source_artifact": "../assets/Baseline_LST_Layout.pdf",
+  "surface_asset": "../assets/baseline_lst_surface.png",
+  "source_creator": "QGIS 3.44.12-Solothurn",
+  "source_creation_date": "2026-08-10T09:40:26+08:00",
+  "temperature_unit": "degrees Celsius",
+  "published_range": {
+    "minimum": 22.066582,
+    "maximum": 53.642132
+  },
+  "surface_pixels": {
+    "width": 1815,
+    "height": 1439
+  },
+  "registered_bounds_wgs84": {
+    "west": 101.3,
+    "south": 2.9036,
+    "east": 101.7999,
+    "north": 3.3002
+  },
+  "registration_method": "The embedded continuous raster was extracted losslessly from the supplied QGIS PDF and registered to the matching telecom study extent.",
+  "operational_status": "Continuous visual evidence surface with extent registration; source PDF is not a GeoPDF or GeoTIFF.",
+  "authorized_use": "Municipal-scale visual interpretation and cross-reference with exact inspection cells.",
+  "restriction": "Do not sample the rendered colours as authoritative temperature values. Use the inspection grid or source model values for numeric decisions."
+}
