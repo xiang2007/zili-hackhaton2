@@ -182,10 +182,11 @@ button:disabled { opacity: .45; cursor: not-allowed; }
 .tower-signal-marker { border: 0 !important; background: transparent !important; pointer-events: none !important; }
 .tower-signal-wave { position: absolute; inset: 0; }
 .tower-signal-ring, .tower-signal-core { position: absolute; left: 50%; top: 50%; border-radius: 50%; transform: translate(-50%, -50%); }
-.tower-signal-ring { width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.92); box-shadow: 0 0 0 1px rgba(22,63,55,.7), 0 0 14px rgba(48,185,217,.65); animation: tower-signal-pulse 2.1s cubic-bezier(.16,.75,.32,1) infinite; }
-.tower-signal-ring:nth-child(2) { animation-delay: .7s; }
-.tower-signal-ring:nth-child(3) { animation-delay: 1.4s; }
-.tower-signal-core { width: 7px; height: 7px; border: 2px solid white; background: var(--green); box-shadow: 0 0 0 2px rgba(22,63,55,.55); }
+.tower-signal-ring { width: 12px; height: 12px; border: 2px solid var(--ring-color, var(--signal-color, #fff)); box-shadow: 0 0 0 1px rgba(22,63,55,.7), 0 0 14px color-mix(in srgb, var(--ring-color, var(--signal-color, #fff)) 70%, transparent); animation: tower-signal-pulse 2.1s cubic-bezier(.16,.75,.32,1) infinite; }
+.tower-signal-ring:nth-child(1) { --ring-color: #00d9ff; }
+.tower-signal-ring:nth-child(2) { --ring-color: #ffd166; animation-delay: .7s; }
+.tower-signal-ring:nth-child(3) { --ring-color: #ff4d9d; animation-delay: 1.4s; }
+.tower-signal-core { width: 7px; height: 7px; border: 2px solid white; background: var(--signal-color, var(--green)); box-shadow: 0 0 0 2px rgba(22,63,55,.55); }
 @keyframes tower-signal-pulse { from { opacity: .95; transform: translate(-50%, -50%) scale(.45); } to { opacity: 0; transform: translate(-50%, -50%) scale(var(--signal-scale)); } }
 @media (prefers-reduced-motion: reduce) { .tower-signal-ring { animation: none; opacity: .52; transform: translate(-50%, -50%) scale(calc(var(--signal-scale) * .62)); } .tower-signal-ring:nth-child(2), .tower-signal-ring:nth-child(3) { display: none; } }
 .leaflet-control-zoom a { color: var(--green); }
