@@ -1,0 +1,33 @@
+{
+  "source": "OpenCelliD",
+  "mcc": 502,
+  "url": "https://opencellid.org",
+  "license": "CC BY-SA 4.0",
+  "attribution": "Cell data © OpenCelliD (CC BY-SA 4.0)",
+  "fetched_at": "2026-09-19T17:58:55.312Z",
+  "next_refresh_at": "2026-10-19T17:58:55.312Z",
+  "count": 45660,
+  "bbox": [
+    101.21684,
+    2.72712,
+    101.96982,
+    3.40856
+  ],
+  "fields": [
+    "radio",
+    "mnc",
+    "lac",
+    "cell",
+    "lon",
+    "lat",
+    "range",
+    "samples",
+    "lst",
+    "risk",
+    "dun"
+  ],
+  "thresholds": {
+    "low_max": 32,
+    "medium_max": 38
+  }
+}

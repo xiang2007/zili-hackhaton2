@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navi | HEAT DISTRIBUTION ANALYSIS</title>
+    
+    <!-- Leaflet & Plugins -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #050a15;
+            --panel-bg: rgba(10, 15, 30, 0.95);
+            --card-bg: rgba(20, 25, 45, 0.8);
+            --border-color: #3b28cc;
+            --text-main: #ffffff;
+            --text-muted: #a5b4fc;
+            --accent: #00f2fe;
+            --red: #ff0055;
+            --yellow: #ffd700;
+            --blue: #00f2fe;
+            --green: #10b981;
+            --scenario-green: #2a433d;
+        }
+
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); overflow: hidden; display: flex; flex-direction: column; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 12px 25px; border-bottom: 1px solid var(--border-color); background: var(--bg-color); z-index: 1000; box-shadow: 0 2px 15px rgba(59, 40, 204, 0.3); }
+        
+        .header-title h2 { margin: 0; font-size: 1.3rem; font-weight: 600; font-family: 'Playfair Display', serif; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); user-select: text; cursor: default; }
+        .header-title span { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; font-weight: 700; user-select: text; cursor: default; }
+        
+        select, input[type="text"], textarea { background: rgba(30, 40, 80, 0.8); color: white; border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; font-family: 'Inter', sans-serif; width: 100%; box-sizing: border-box; margin-top: 5px; margin-bottom: 15px; }
+        
+        .main-container { display: flex; flex: 1; height: calc(100vh - 65px); position: relative; }
+        
+        /* RESIZABLE SIDEBAR */
+        .sidebar { width: 420px; min-width: 280px; max-width: 750px; background: var(--panel-bg); backdrop-filter: blur(16px); border-right: 1px solid var(--border-color); padding: 20px; overflow-y: auto; z-index: 999; box-shadow: 4px 0 20px rgba(0,0,0,0.8); box-sizing: border-box; flex-shrink: 0; position: relative; }
+        
+        /* DRAGGABLE RESIZER HANDLE */
+        .sidebar-resizer { width: 6px; background: transparent; position: absolute; top: 0; right: -3px; bottom: 0; cursor: ew-resize; z-index: 1005; transition: background 0.2s; }
+        .sidebar-resizer:hover, .sidebar-resizer.resizing { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+        #map { flex: 1; background-color: #e5e5e5; position: relative; } 
+        .osm-basemap { filter: contrast(1.1) opacity(0.9) grayscale(20%); }
+
+        .tab-nav { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+        .tab-btn { background: none; border: none; color: var(--text-muted); padding: 8px 14px; cursor: pointer; font-weight: 600; font-size: 0.85rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab-btn.active { color: var(--accent); border-bottom: 2px solid var(--accent); text-shadow: 0 0 8px var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .badge { background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent); color: var(--accent); font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; font-weight: 700; }
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .metric-card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .metric-card h4 { margin: 0; color: var(--text-muted); font-size: 0.75rem; font-weight: 500; }
+        .metric-card .value { font-size: 1.7rem; font-weight: 700; margin: 4px 0 0 0; text-shadow: 0 0 8px rgba(255,255,255,0.3); }
+        .metric-card .subtext { font-size: 0.72rem; color: var(--text-muted); }
+        .card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        
+        input[type=range] { width: 100%; margin: 10px 0; accent-color: var(--accent); cursor: pointer; }
+        .slider-label { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; align-items: center;}
+        
+        .btn { background: rgba(30, 40, 80, 0.8); color: white; border: 1px solid var(--border-color); padding: 9px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; transition: 0.2s; display: block; text-align: center; }
+        .btn:hover { background: var(--border-color); box-shadow: 0 0 12px var(--border-color); }
+        .btn-proposed { background: #ff0055; border-color: #ff0055; width: max-content; padding: 10px 20px; margin-bottom: 0;}
+        .btn-proposed:hover { background: #cc0044; box-shadow: 0 0 15px #ff0055; }
+        
+        .help-btn { background: transparent; color: var(--text-main); border: 1px solid var(--text-muted); border-radius: 50%; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.2s; padding: 0; font-size: 1rem; }
+        .help-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--text-main); box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+
+        .doc-btn { display: flex; align-items: center; justify-content: space-between; background: var(--card-bg); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; }
+        .doc-btn:hover { background: rgba(59, 40, 204, 0.2); }
+        .doc-badge { background: #1e293b; color: #94a3b8; font-weight: bold; font-size: 0.7rem; padding: 8px; border-radius: 6px; margin-right: 12px; }
+        .doc-text h4 { margin: 0 0 2px 0; font-size: 0.9rem; color: var(--text-main); }
+        .doc-text p { margin: 0; font-size: 0.7rem; color: var(--text-muted); }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); z-index: 9999; display: none; align-items: center; justify-content: center; }
+        .modal-box { background: var(--panel-bg); border: 1px solid var(--border-color); width: 450px; border-radius: 12px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,1); position: relative; }
+        .close-btn { position: absolute; top: 15px; right: 20px; background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; }
+        .close-btn:hover { color: white; }
+
+        .leaflet-popup-content-wrapper { background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border-color); box-shadow: 0 0 15px rgba(0,0,0,0.8); }
+        .leaflet-popup-tip { background: var(--panel-bg); }
+
+        .stats-row { display: flex; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); margin-bottom: 15px; }
+        .stats-col { flex: 1; padding: 12px; border-right: 1px solid var(--border-color); }
+        .stats-col:last-child { border-right: none; }
+        .stats-col span { font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;}
+        .stats-col strong { font-size: 1.2rem; }
+
+        /* ==============================================================
+           DYNAMIC ZOOM ARCHITECTURE & HIGH-VISIBILITY MARKERS
+           ============================================================== */
+        .custom-pin-icon, .custom-cluster-icon { background: transparent; border: none; }
+        
+        .pin-master { position: relative; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 0 4px rgba(0,242,254,0.6)); }
+        .pin-dot { width: 8px; height: 8px; background: #00f2fe; border: 1.5px solid #fff; border-radius: 50%; display: none; opacity: 1; box-shadow: 0 0 8px #00f2fe; }
+        .pin-teardrop { position: absolute; bottom: 0; left: 0; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: none; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.9); }
+        .pin-teardrop span { transform: rotate(45deg); color: white; font-weight: 800; font-size: 13px; margin-top: -2px; margin-left: -2px; font-family: 'Inter', sans-serif;}
+
+        .cluster-master { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .cluster-dot { width: 8px; height: 8px; background: #00f2fe; border: 1px solid #fff; border-radius: 50%; opacity: 1; display: none; box-shadow: 0 0 6px #00f2fe; }
+        .cluster-circle { width: 34px; height: 34px; border-radius: 50%; color: #fff; display: none; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 0 12px rgba(0,0,0,0.5); font-size: 0.85rem; }
+        .cluster-huge .cluster-circle { background: rgba(217, 119, 54, 0.95); border: 2px solid rgba(255,255,255,0.8); }
+        .cluster-normal .cluster-circle { background: rgba(59, 40, 204, 0.95); border: 2px solid #00f2fe; }
+
+        .map-zoom-dots .cluster-circle { display: none; }
+        .map-zoom-dots .cluster-dot { display: block; }
+        .map-zoom-dots .pin-teardrop { display: none; }
+        .map-zoom-dots .pin-dot { display: block; }
+        
+        .map-zoom-clusters .cluster-circle { display: flex; }
+        .map-zoom-clusters .cluster-dot { display: none; }
+        .map-zoom-clusters .pin-dot { display: block; width: 10px; height: 10px; background: #00f2fe; border: 2px solid #fff; opacity: 1; box-shadow: 0 0 10px #00f2fe; } 
+        .map-zoom-clusters .pin-teardrop { display: none; }
+
+        .map-zoom-teardrops .cluster-circle { display: flex; } 
+        .map-zoom-teardrops .cluster-dot { display: none; }
+        .map-zoom-teardrops .pin-dot { display: none; }
+        .map-zoom-teardrops .pin-teardrop { display: flex; }
+        
+        #selection-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 2000;
+            display: none;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <span>PHASE 6 • MUNICIPAL DECISION SUPPORT</span>
+            <h2>Navi | HEAT DISTRIBUTION ANALYSIS</h2>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <span style="font-size: 0.85rem; font-weight: 600;">Operational view</span>
+            <select id="state-selector" onchange="flyToState()" style="margin: 0; width: auto;">
+                <option value="klang_valley">Klang Valley</option>
+                <option value="dbkl">DBKL · Kuala Lumpur</option>
+                <option value="mbsa">MBSA · Shah Alam</option>
+                <option value="mbpj">MBPJ · Petaling Jaya</option>
+            </select>
+            <button style="padding:8px 12px; background:rgba(255,0,85,0.15); color:#ff0055; border:1px solid #ff0055; border-radius:6px; font-size:0.8rem; box-shadow: 0 0 8px rgba(255,0,85,0.3);">🔴 Controlled technical data</button>
+            <span id="data-status" style="font-size:0.72rem; color:var(--text-muted);">Loading data…</span>
+            <button class="help-btn" onclick="openInfoModal()" title="Read Before Use">?</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- RESIZABLE SIDEBAR -->
+        <aside id="sidebar-panel" class="sidebar">
+            <div class="sidebar-resizer" id="sidebar-resizer"></div>
+            
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="openTab(event, 'overview')">Overview</button>
+                <button class="tab-btn" onclick="openTab(event, 'scenario')">Scenario lab</button>
+                <button class="tab-btn" onclick="openTab(event, 'approval')">Approval</button>
+                <button class="tab-btn" onclick="openTab(event, 'handoff')">Handoff</button>
+                <button class="tab-btn" onclick="openTab(event, 'data')">Data</button>
+            </div>
+
+            <!-- OVERVIEW TAB -->
+            <div id="overview" class="tab-content active">
+                <h3 style="margin: 0 0 15px 0; font-family:'Playfair Display', serif; font-size: 1.5rem;">Thermal exposure</h3>
+                <div class="kpi-grid">
+                    <div class="metric-card"><h4>Telecom records</h4><p class="value" id="kpi-records">—</p><span class="subtext" id="kpi-records-sub">observed cells (KV)</span></div>
+                    <div class="metric-card"><h4>High-risk now</h4><p class="value" id="kpi-highrisk" style="color: var(--red);">—</p><span class="subtext" id="kpi-highrisk-sub">% of portfolio</span></div>
+                    <div class="metric-card"><h4>Mean LST</h4><p class="value" id="kpi-meanlst">—<span style="font-size:1.1rem;">°</span></p><span class="subtext" id="kpi-meanlst-sub">modelled surface °C</span></div>
+                    <div class="metric-card"><h4>Priority grid</h4><p class="value" id="kpi-priority" style="color: var(--yellow);">—</p><span class="subtext" id="kpi-priority-sub">elevated + critical</span></div>
+                </div>
+
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; font-family:'Playfair Display', serif; font-size:1.2rem;">Map evidence</h3>
+                        <a href="#" style="color:var(--accent); font-size:0.75rem; text-decoration:none;" onclick="document.getElementById('state-selector').value = 'klang_valley'; flyToState();">Reset view</a>
+                    </div>
+                    <div class="slider-label" style="margin-top:12px;"><span>Surface Opacity</span><span id="opacity-val">72%</span></div>
+                    <input type="range" id="opacity-slider" min="0" max="100" value="72" oninput="updateOpacity(this.value)">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:12px; font-size:0.8rem;">
+                        <label><input type="checkbox" id="chk-heat" checked onchange="toggleHeatLayer()"> Heat surface</label>
+                        <label><input type="checkbox" id="chk-cells" checked onchange="toggleNodes()"> Telecom nodes</label>
+                        <label><input type="checkbox" id="chk-districts" checked onchange="toggleDistrictLayer()"> UHVI districts</label>
+                        <label><input type="checkbox" id="chk-png" onchange="togglePngLayer()"> Exported map PNG</label>
+                    </div>
+                    <div style="margin-top:12px; font-size:0.8rem;">
+                        <span style="display:block; margin-bottom:4px; color:var(--text-muted); font-weight:600;">Node colour</span>
+                        <select id="color-mode" onchange="setColorMode(this.value)" style="margin:0;">
+                            <option value="risk">Thermal risk tier</option>
+                            <option value="radio">Radio type</option>
+                        </select>
+                    </div>
+                    
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted);">
+                        <span style="display:block; margin-bottom:8px; font-weight:bold; letter-spacing:1px; font-size:0.7rem;">THERMAL RISK TIERS</span>
+                        <div id="risk-legend" style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;"></div>
+                        <span style="display:block; margin:12px 0 8px 0; font-weight:bold; letter-spacing:1px; font-size:0.7rem;">CELLULAR RADIO TYPES</span>
+                        <div id="radio-legend" style="display:flex; gap:15px; align-items:center; flex-wrap:wrap;"></div>
+                        <p id="cell-attribution" style="margin:10px 0 0 0; font-size:0.7rem;"></p>
+                    </div>
+                    
+                    <!-- AREA HIGHLIGHT TOOL -->
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                        <span style="display:block; margin-bottom:8px; font-weight:bold; letter-spacing:1px; font-size:0.7rem; color:var(--text-muted);">COVERAGE PATTERN ANALYSIS</span>
+                        <button id="area-select-btn" class="btn" style="background:rgba(0, 242, 254, 0.1); color:var(--accent); border-color:var(--accent);" onclick="toggleAreaSelect()">Highlight Area (Multi-Select)</button>
+                        <p id="area-select-status" style="font-size:0.75rem; color:var(--text-muted); margin:5px 0 0 0; display:none;">Click & drag on the map to draw a selection box.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCENARIO LAB TAB -->
+            <div id="scenario" class="tab-content">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">PREDICTIVE SCENARIO TOOL</span>
+                    <a href="#" style="font-size:0.75rem; color:var(--text-muted); text-decoration:none;" onclick="resetScenario()">Reset</a>
+                </div>
+                <h3 style="margin: 5px 0 15px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Stress-test heat</h3>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Combine regional warming, local mitigation, and the supplied model delta. All changes update the map instantly.</p>
+                
+                <div class="card" style="background: var(--scenario-green); border-color: var(--scenario-green);">
+                    <h4 style="margin:0; font-size:0.8rem; color:#a7f3d0;">Net portfolio adjustment</h4>
+                    <p id="net-adj" style="font-size:2.5rem; font-weight:700; margin:5px 0; color:#fff;">+0.0 °C</p>
+                    <span id="net-adj-desc" style="font-size:0.8rem; color:#a7f3d0;">Baseline conditions</span>
+                </div>
+                
+                <div class="card">
+                    <div class="slider-label"><span>Regional heat stress</span><span id="val-reg">+0.0 °C</span></div>
+                    <input type="range" id="slider-reg" min="-3" max="5" value="0" step="0.1" oninput="updateScenario()">
+                    <div class="slider-label" style="margin-top:15px;"><span>Cooling intervention</span><span id="val-cool">0.0 °C</span></div>
+                    <input type="range" id="slider-cool" min="-5" max="0" value="0" step="0.1" oninput="updateScenario()">
+                </div>
+
+                <div class="stats-row">
+                    <div class="stats-col"><span>Scenario high-risk</span><strong id="stat-risk">15,945</strong></div>
+                    <div class="stats-col"><span>Change from baseline</span><strong id="stat-change" style="color:var(--text-main);">0</strong></div>
+                    <div class="stats-col"><span>Scenario mean</span><strong id="stat-mean">37.7 °C</strong></div>
+                </div>
+
+                <div class="card" style="background: var(--bg-color);">
+                    <h3 style="margin: 0 0 5px 0; font-family:'Playfair Display', serif;">Test a proposed site</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-top:0; margin-bottom: 12px;">Click the map to estimate thermal resilience and coverage gap.</p>
+                    <button id="placement-btn" class="btn btn-proposed" onclick="togglePlacementMode()">Place proposed site</button>
+                    <p id="placement-status" style="font-size:0.8rem; color:var(--text-muted); margin-top:10px; margin-bottom:0;">Placement mode is off.</p>
+                </div>
+            </div>
+            
+            <!-- APPROVAL TAB -->
+            <div id="approval" class="tab-content">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">MUNICIPAL APPROVAL BOARDS</span>
+                        <h3 style="margin: 5px 0 10px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Candidate register</h3>
+                    </div>
+                    <span id="site-count-badge" class="badge" style="background:#1e293b; color:#fff; border:none; padding:6px 12px;">0 sites</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px; line-height: 1.4;">Scores guide review; they do not replace planning permission, engineering design, public-health analysis, or community consultation.</p>
+
+                <div class="card" style="margin-bottom: 15px;">
+                    <div class="slider-label" style="margin-bottom:8px;">
+                        <span style="font-weight: 700; color: var(--text-main);">Thermal resilience weight</span>
+                        <span id="weight-thermal-val" style="font-weight: 700; color: var(--text-main);">65%</span>
+                    </div>
+                    <input type="range" id="weight-slider" min="0" max="100" value="65" oninput="updateWeights(this.value)">
+                    <div class="slider-label" style="margin-top:10px; color:var(--text-muted); font-weight:400;">
+                        <span>Coverage-gap weight</span>
+                        <span id="weight-coverage-val" style="font-weight: 700; color: var(--text-main);">35%</span>
+                    </div>
+                </div>
+
+                <div id="candidate-list">
+                    <div id="empty-state" style="text-align:center; padding: 20px; border: 1px dashed var(--border-color); border-radius:8px; margin-bottom:15px;">
+                        <p style="font-size:1.5rem; margin:0; color:var(--text-muted);">+</p>
+                        <h4 style="margin:5px 0; color:var(--text-main);">No proposed sites</h4>
+                        <p style="font-size:0.8rem; color:var(--text-muted); margin:0;">Use Scenario lab → Place proposed site.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top: 15px;">
+                    <button class="btn" style="flex:1; background:transparent; border-color:var(--border-color); color:var(--text-main);">Export CSV</button>
+                    <button class="btn" style="flex:1; background:var(--scenario-green); border-color:var(--scenario-green);">Export board memo</button>
+                </div>
+            </div>
+
+            <!-- HANDOFF LIBRARY TAB -->
+            <div id="handoff" class="tab-content">
+                <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">POLICY & OPERATIONS</span>
+                <h3 style="margin: 5px 0 10px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Handoff library</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 20px;">A traceable release for DBKL, MBSA, MBPJ, public health, civil defense, and technical custodians.</p>
+
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Executive summary</h4><p>Decisions, findings, KLCAP alignment</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Municipal briefing</h4><p>DBKL · MBSA · MBPJ run-of-show</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Approval board guide</h4><p>Scenario scoring and review gates</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>HVI & exposure dictionary</h4><p>Definitions, lineage, limitations</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Baseline LST note</h4><p>Raster provenance and registration</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Usability protocol</h4><p>Workshop script and iteration log</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <a class="doc-btn" href="/data/phase6_telecom_heat_risk.ipynb" download style="text-decoration:none;"><div style="display:flex; align-items:center;"><div class="doc-badge">NB</div><div class="doc-text"><h4>Phase 6 telecom heat risk</h4><p>Pipeline notebook</p></div></div><span style="color:var(--text-muted);">↓</span></a>
+                <a class="doc-btn" href="/data/phase7_web_export.ipynb" download style="text-decoration:none;"><div style="display:flex; align-items:center;"><div class="doc-badge">NB</div><div class="doc-text"><h4>Phase 7 web export</h4><p>Pipeline notebook</p></div></div><span style="color:var(--text-muted);">↓</span></a>
+
+                <div style="margin-top: 30px; margin-bottom: 30px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); font-weight:bold; letter-spacing:1px;">OPERATIONAL DATA</span>
+                    <div style="background:rgba(245, 158, 11, 0.15); border-left:4px solid #f59e0b; padding:12px; margin-top:10px; margin-bottom: 15px; font-size:0.75rem; color:var(--text-main); border-radius: 0 4px 4px 0;">
+                        <span style="color:#fbbf24; font-weight:bold;">Controlled-access dataset.</span> Exact infrastructure coordinates are included. Do not republish until accountable owner approves.
+                    </div>
+                    <a class="btn" style="background:transparent; border-color:var(--border-color); color:var(--text-main); text-decoration:none;" href="/data/dashboard_data_v3.geojson" download>Thermal exposure GeoJSON</a>
+                    <a class="btn" style="background:transparent; border-color:var(--border-color); color:var(--text-main); text-decoration:none;" href="/data/uhvi_dun_v3.csv" download>Processed telecom CSV · controlled</a>
+                </div>
+
+                <div class="card" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3);">
+                    <span style="font-size:0.7rem; color:var(--green); font-weight:bold; letter-spacing:1px;">CLOSE THE LOOP</span>
+                    <h3 style="margin: 5px 0 5px 0; font-family:'Playfair Display', serif; font-size:1.4rem;">Capture workshop feedback</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 15px;">Responses stay in this browser until exported.</p>
+                    <button class="btn" style="background:#1e293b; width:max-content; padding: 10px 20px; margin:0;" onclick="openFeedbackModal()">Open feedback form</button>
+                </div>
+            </div>
+
+            <div id="data" class="tab-content">
+                <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">SUPPLIED DATASET</span>
+                <h3 style="margin: 5px 0 10px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">District data</h3>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:12px;">Renders uhvi_dun_v3.csv — 44 DUNs with UHVI, land-surface temperature, income, elderly share, and green/industrial deltas.</p>
+                <input type="text" id="csv-search" placeholder="Search DUN, parliament, district…" oninput="filterCsvTable(this.value)">
+                <div id="csv-table-wrap" style="overflow:auto; max-height:60vh; border:1px solid var(--border-color); border-radius:8px;"></div>
+                <a class="btn" style="margin-top:12px;" href="/data/uhvi_dun_v3.csv" download>Download uhvi_dun_v3.csv</a>
+                <a class="btn" href="/data/dashboard_data_v3.geojson" download>Download dashboard_data_v3.geojson</a>
+                <a class="btn" href="/data/opencellid/telecom_sites.geojson" download>Download telecom_sites.geojson</a>
+            </div>
+        </aside>
+
+        <div id="map">
+            <div id="selection-canvas"></div>
+        </div>
+    </div>
+
+    <!-- INFO MODAL (Updated precisely to match your screenshot requirement) -->
+    <div id="info-modal" class="modal-overlay">
+        <div class="modal-box" style="background: #ffffff; color: #1e293b; width: 620px; border-radius: 16px; padding: 35px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); position: relative;">
+            <button class="close-btn" style="color: #64748b;" onclick="closeInfoModal()">×</button>
+            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 1.5px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 8px;">Read Before Use</span>
+            <h3 style="margin: 0 0 20px 0; font-family:'Playfair Display', serif; font-size: 1.7rem; color: #0f172a; line-height: 1.25;">What this dashboard can—and cannot—decide</h3>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">It supports heat screening and scenario comparison across the supplied telecom observations. Low, Medium, and High use the source breakpoints &lt;32 °C, 32–&lt;38 °C, and ≥38 °C.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">The smooth default surface is extracted from the supplied baseline LST layout and registered to the matching study extent. Exact numeric inspection still comes from the evidence grid and model records.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">The thermal exposure grid aggregates modelled land-surface temperature. It is not a full Heat Vulnerability Index because no demographic sensitivity or adaptive-capacity attributes were supplied.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin: 0;">Proposed-site scores combine a lower-temperature preference with distance to the nearest supplied telecom record. They are preliminary and must pass the approval gates.</p>
+        </div>
+    </div>
+
+    <!-- FEEDBACK MODAL (Exact match to your screenshot design) -->
+    <div id="feedback-modal" class="modal-overlay">
+        <div class="modal-box" style="background: #ffffff; color: #1e293b; width: 560px; border-radius: 16px; padding: 35px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); position: relative;">
+            <button class="close-btn" style="color: #64748b;" onclick="closeFeedbackModal()">×</button>
+            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 1.5px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 8px;">ITERATION CYCLE</span>
+            <h3 style="margin: 0 0 20px 0; font-family:'Playfair Display', serif; font-size: 1.8rem; color: #0f172a;">Workshop feedback</h3>
+            
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Agency / team</label>
+            <input type="text" id="fb-agency" placeholder="e.g. DBKL Planning" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px;">
+
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Primary task</label>
+            <select id="fb-task" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px;">
+                <option>Heat monitoring</option>
+                <option>Telecom network planning</option>
+                <option>Municipal resilience evaluation</option>
+                <option>Policy & compliance</option>
+            </select>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="font-size:0.85rem; font-weight:600; color:#0f172a;">Ease of use (1–5)</label>
+                <span id="ease-val" style="font-weight:700; color:#2563eb; font-size:0.9rem;">4</span>
+            </div>
+            <input type="range" id="fb-ease" min="1" max="5" value="4" step="1" oninput="document.getElementById('ease-val').innerText=this.value" style="accent-color: #2563eb; margin-bottom:15px;">
+
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Most important improvement</label>
+            <textarea id="fb-improvement" rows="3" placeholder="What should change before operational adoption?" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px; resize:vertical;"></textarea>
+
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+                <input type="checkbox" id="fb-check" style="width:16px; height:16px; accent-color:#2563eb; cursor:pointer;">
+                <label for="fb-check" style="font-size:0.8rem; color:#334155; cursor:pointer; font-weight:500;">I understand this record will be included in the exported iteration log.</label>
+            </div>
+
+            <button class="btn" style="background:#1e3a34; color:#ffffff; font-weight:bold; padding:12px; border-radius:8px; border:none; margin-bottom:20px;" onclick="submitFeedbackModal()">Save response</button>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:15px; font-size:0.85rem; color:#64748b;">
+                <span id="response-count-label">0 saved responses</span>
+                <a href="#" style="color:#0f172a; font-weight:bold; text-decoration:none;" onclick="exportJSONResponses()">Export JSON</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

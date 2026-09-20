@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Navi | HEAT DISTRIBUTION ANALYSIS</title>
+    
+    <!-- Leaflet & Plugins -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #050a15;
+            --panel-bg: rgba(10, 15, 30, 0.95);
+            --card-bg: rgba(20, 25, 45, 0.8);
+            --border-color: #3b28cc;
+            --text-main: #ffffff;
+            --text-muted: #a5b4fc;
+            --accent: #00f2fe;
+            --red: #ff0055;
+            --yellow: #ffd700;
+            --blue: #00f2fe;
+            --green: #10b981;
+            --scenario-green: #2a433d;
+        }
+
+        body, html { margin: 0; padding: 0; height: 100%; font-family: 'Inter', sans-serif; background-color: var(--bg-color); color: var(--text-main); overflow: hidden; display: flex; flex-direction: column; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 12px 25px; border-bottom: 1px solid var(--border-color); background: var(--bg-color); z-index: 1000; box-shadow: 0 2px 15px rgba(59, 40, 204, 0.3); }
+        
+        .header-title h2 { margin: 0; font-size: 1.3rem; font-weight: 600; font-family: 'Playfair Display', serif; text-shadow: 0 0 10px rgba(0, 242, 254, 0.5); user-select: text; cursor: default; }
+        .header-title span { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 1px; text-transform: uppercase; font-weight: 700; user-select: text; cursor: default; }
+        
+        select, input[type="text"], textarea { background: rgba(30, 40, 80, 0.8); color: white; border: 1px solid var(--border-color); padding: 8px 12px; border-radius: 6px; font-size: 0.85rem; outline: none; font-family: 'Inter', sans-serif; width: 100%; box-sizing: border-box; margin-top: 5px; margin-bottom: 15px; }
+        
+        .main-container { display: flex; flex: 1; height: calc(100vh - 65px); position: relative; }
+        
+        /* RESIZABLE SIDEBAR */
+        .sidebar { width: 420px; min-width: 280px; max-width: 750px; background: var(--panel-bg); backdrop-filter: blur(16px); border-right: 1px solid var(--border-color); padding: 20px; overflow-y: auto; z-index: 999; box-shadow: 4px 0 20px rgba(0,0,0,0.8); box-sizing: border-box; flex-shrink: 0; position: relative; }
+        
+        /* DRAGGABLE RESIZER HANDLE */
+        .sidebar-resizer { width: 6px; background: transparent; position: absolute; top: 0; right: -3px; bottom: 0; cursor: ew-resize; z-index: 1005; transition: background 0.2s; }
+        .sidebar-resizer:hover, .sidebar-resizer.resizing { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+        #map { flex: 1; background-color: #e5e5e5; position: relative; } 
+        .osm-basemap { filter: contrast(1.1) opacity(0.9) grayscale(20%); }
+
+        .tab-nav { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+        .tab-btn { background: none; border: none; color: var(--text-muted); padding: 8px 14px; cursor: pointer; font-weight: 600; font-size: 0.85rem; border-bottom: 2px solid transparent; transition: all 0.2s; }
+        .tab-btn.active { color: var(--accent); border-bottom: 2px solid var(--accent); text-shadow: 0 0 8px var(--accent); }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        .badge { background: rgba(0, 242, 254, 0.1); border: 1px solid var(--accent); color: var(--accent); font-size: 0.7rem; padding: 3px 8px; border-radius: 4px; font-weight: 700; }
+        .kpi-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px; }
+        .metric-card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; box-shadow: inset 0 0 10px rgba(0,0,0,0.5); }
+        .metric-card h4 { margin: 0; color: var(--text-muted); font-size: 0.75rem; font-weight: 500; }
+        .metric-card .value { font-size: 1.7rem; font-weight: 700; margin: 4px 0 0 0; text-shadow: 0 0 8px rgba(255,255,255,0.3); }
+        .metric-card .subtext { font-size: 0.72rem; color: var(--text-muted); }
+        .card { background: var(--card-bg); border: 1px solid var(--border-color); padding: 15px; border-radius: 8px; margin-bottom: 15px; }
+        
+        input[type=range] { width: 100%; margin: 10px 0; accent-color: var(--accent); cursor: pointer; }
+        .slider-label { display: flex; justify-content: space-between; font-size: 0.8rem; font-weight: 600; align-items: center;}
+        
+        .btn { background: rgba(30, 40, 80, 0.8); color: white; border: 1px solid var(--border-color); padding: 9px; border-radius: 6px; cursor: pointer; width: 100%; font-weight: 600; font-size: 0.85rem; margin-bottom: 8px; transition: 0.2s; display: block; text-align: center; }
+        .btn:hover { background: var(--border-color); box-shadow: 0 0 12px var(--border-color); }
+        .btn-proposed { background: #ff0055; border-color: #ff0055; width: max-content; padding: 10px 20px; margin-bottom: 0;}
+        .btn-proposed:hover { background: #cc0044; box-shadow: 0 0 15px #ff0055; }
+        
+        .help-btn { background: transparent; color: var(--text-main); border: 1px solid var(--text-muted); border-radius: 50%; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font-weight: bold; cursor: pointer; transition: 0.2s; padding: 0; font-size: 1rem; }
+        .help-btn:hover { background: rgba(255,255,255,0.1); border-color: var(--text-main); box-shadow: 0 0 10px rgba(255,255,255,0.2); }
+
+        .doc-btn { display: flex; align-items: center; justify-content: space-between; background: var(--card-bg); border: 1px solid var(--border-color); padding: 12px; border-radius: 8px; margin-bottom: 10px; cursor: pointer; transition: 0.2s; }
+        .doc-btn:hover { background: rgba(59, 40, 204, 0.2); }
+        .doc-badge { background: #1e293b; color: #94a3b8; font-weight: bold; font-size: 0.7rem; padding: 8px; border-radius: 6px; margin-right: 12px; }
+        .doc-text h4 { margin: 0 0 2px 0; font-size: 0.9rem; color: var(--text-main); }
+        .doc-text p { margin: 0; font-size: 0.7rem; color: var(--text-muted); }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.8); backdrop-filter: blur(5px); z-index: 9999; display: none; align-items: center; justify-content: center; }
+        .modal-box { background: var(--panel-bg); border: 1px solid var(--border-color); width: 450px; border-radius: 12px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,1); position: relative; }
+        .close-btn { position: absolute; top: 15px; right: 20px; background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; }
+        .close-btn:hover { color: white; }
+
+        .leaflet-popup-content-wrapper { background: var(--panel-bg); color: var(--text-main); border: 1px solid var(--border-color); box-shadow: 0 0 15px rgba(0,0,0,0.8); }
+        .leaflet-popup-tip { background: var(--panel-bg); }
+
+        .stats-row { display: flex; border: 1px solid var(--border-color); border-radius: 8px; background: var(--card-bg); margin-bottom: 15px; }
+        .stats-col { flex: 1; padding: 12px; border-right: 1px solid var(--border-color); }
+        .stats-col:last-child { border-right: none; }
+        .stats-col span { font-size: 0.75rem; color: var(--text-muted); display: block; margin-bottom: 4px;}
+        .stats-col strong { font-size: 1.2rem; }
+
+        /* ==============================================================
+           DYNAMIC ZOOM ARCHITECTURE & HIGH-VISIBILITY MARKERS
+           ============================================================== */
+        .custom-pin-icon, .custom-cluster-icon { background: transparent; border: none; }
+        
+        .pin-master { position: relative; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; filter: drop-shadow(0 0 4px rgba(0,242,254,0.6)); }
+        .pin-dot { width: 8px; height: 8px; background: #00f2fe; border: 1.5px solid #fff; border-radius: 50%; display: none; opacity: 1; box-shadow: 0 0 8px #00f2fe; }
+        .pin-teardrop { position: absolute; bottom: 0; left: 0; width: 30px; height: 30px; border-radius: 50% 50% 50% 0; transform: rotate(-45deg); display: none; align-items: center; justify-content: center; box-shadow: 0 0 10px rgba(0,0,0,0.7); border: 2px solid rgba(255,255,255,0.9); }
+        .pin-teardrop span { transform: rotate(45deg); color: white; font-weight: 800; font-size: 13px; margin-top: -2px; margin-left: -2px; font-family: 'Inter', sans-serif;}
+
+        .cluster-master { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        .cluster-dot { width: 8px; height: 8px; background: #00f2fe; border: 1px solid #fff; border-radius: 50%; opacity: 1; display: none; box-shadow: 0 0 6px #00f2fe; }
+        .cluster-circle { width: 34px; height: 34px; border-radius: 50%; color: #fff; display: none; align-items: center; justify-content: center; font-weight: bold; box-shadow: 0 0 12px rgba(0,0,0,0.5); font-size: 0.85rem; }
+        .cluster-huge .cluster-circle { background: rgba(217, 119, 54, 0.95); border: 2px solid rgba(255,255,255,0.8); }
+        .cluster-normal .cluster-circle { background: rgba(59, 40, 204, 0.95); border: 2px solid #00f2fe; }
+
+        .map-zoom-dots .cluster-circle { display: none; }
+        .map-zoom-dots .cluster-dot { display: block; }
+        .map-zoom-dots .pin-teardrop { display: none; }
+        .map-zoom-dots .pin-dot { display: block; }
+        
+        .map-zoom-clusters .cluster-circle { display: flex; }
+        .map-zoom-clusters .cluster-dot { display: none; }
+        .map-zoom-clusters .pin-dot { display: block; width: 10px; height: 10px; background: #00f2fe; border: 2px solid #fff; opacity: 1; box-shadow: 0 0 10px #00f2fe; } 
+        .map-zoom-clusters .pin-teardrop { display: none; }
+
+        .map-zoom-teardrops .cluster-circle { display: flex; } 
+        .map-zoom-teardrops .cluster-dot { display: none; }
+        .map-zoom-teardrops .pin-dot { display: none; }
+        .map-zoom-teardrops .pin-teardrop { display: flex; }
+        
+        #selection-canvas {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 2000;
+            display: none;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <span>PHASE 6 • MUNICIPAL DECISION SUPPORT</span>
+            <h2>Navi | HEAT DISTRIBUTION ANALYSIS</h2>
+        </div>
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <span style="font-size: 0.85rem; font-weight: 600;">Operational view</span>
+            <select id="state-selector" onchange="flyToState()" style="margin: 0; width: auto;">
+                <option value="klang_valley">Klang Valley</option>
+                <option value="dbkl">DBKL · Kuala Lumpur</option>
+                <option value="mbsa">MBSA · Shah Alam</option>
+                <option value="mbpj">MBPJ · Petaling Jaya</option>
+            </select>
+            <button style="padding:8px 12px; background:rgba(255,0,85,0.15); color:#ff0055; border:1px solid #ff0055; border-radius:6px; font-size:0.8rem; box-shadow: 0 0 8px rgba(255,0,85,0.3);">🔴 Controlled technical data</button>
+            <button class="help-btn" onclick="openInfoModal()" title="Read Before Use">?</button>
+        </div>
+    </header>
+
+    <div class="main-container">
+        <!-- RESIZABLE SIDEBAR -->
+        <aside id="sidebar-panel" class="sidebar">
+            <div class="sidebar-resizer" id="sidebar-resizer"></div>
+            
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="openTab(event, 'overview')">Overview</button>
+                <button class="tab-btn" onclick="openTab(event, 'scenario')">Scenario lab</button>
+                <button class="tab-btn" onclick="openTab(event, 'approval')">Approval</button>
+                <button class="tab-btn" onclick="openTab(event, 'handoff')">Handoff</button>
+            </div>
+
+            <!-- OVERVIEW TAB -->
+            <div id="overview" class="tab-content active">
+                <h3 style="margin: 0 0 15px 0; font-family:'Playfair Display', serif; font-size: 1.5rem;">Thermal exposure</h3>
+                <div class="kpi-grid">
+                    <div class="metric-card"><h4>Telecom records</h4><p class="value">14,281</p><span class="subtext">observed cells (KV)</span></div>
+                    <div class="metric-card"><h4>High-risk now</h4><p class="value" style="color: var(--red);">6,145</p><span class="subtext">43.0% of portfolio</span></div>
+                    <div class="metric-card"><h4>Mean LST</h4><p class="value">38.2<span style="font-size:1.1rem;">°</span></p><span class="subtext">modelled surface °C</span></div>
+                    <div class="metric-card"><h4>Priority grid</h4><p class="value" style="color: var(--yellow);">234</p><span class="subtext">elevated + critical</span></div>
+                </div>
+
+                <div class="card">
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <h3 style="margin:0; font-family:'Playfair Display', serif; font-size:1.2rem;">Map evidence</h3>
+                        <a href="#" style="color:var(--accent); font-size:0.75rem; text-decoration:none;" onclick="document.getElementById('state-selector').value = 'klang_valley'; flyToState();">Reset view</a>
+                    </div>
+                    <div class="slider-label" style="margin-top:12px;"><span>Surface Opacity</span><span id="opacity-val">72%</span></div>
+                    <input type="range" id="opacity-slider" min="0" max="100" value="72" oninput="updateOpacity(this.value)">
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:12px; font-size:0.8rem;">
+                        <label><input type="checkbox" id="chk-heat" checked onchange="toggleHeatLayer()"> Heat surface</label>
+                        <label><input type="checkbox" id="chk-cells" checked onchange="toggleNodes()"> Telecom nodes</label>
+                    </div>
+                    
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted);">
+                        <span style="display:block; margin-bottom:8px; font-weight:bold; letter-spacing:1px; font-size:0.7rem;">CELLULAR RADIO TYPES</span>
+                        <div style="display:flex; gap:15px; align-items:center;">
+                            <div style="display:flex; align-items:center; gap:5px;"><div style="width:12px; height:12px; border-radius:50%; background:#82c341;"></div> GSM</div>
+                            <div style="display:flex; align-items:center; gap:5px;"><div style="width:12px; height:12px; border-radius:50%; background:#e37b35;"></div> UMTS</div>
+                            <div style="display:flex; align-items:center; gap:5px;"><div style="width:12px; height:12px; border-radius:50%; background:#5a9bd4;"></div> LTE</div>
+                        </div>
+                    </div>
+                    
+                    <!-- AREA HIGHLIGHT TOOL -->
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+                        <span style="display:block; margin-bottom:8px; font-weight:bold; letter-spacing:1px; font-size:0.7rem; color:var(--text-muted);">COVERAGE PATTERN ANALYSIS</span>
+                        <button id="area-select-btn" class="btn" style="background:rgba(0, 242, 254, 0.1); color:var(--accent); border-color:var(--accent);" onclick="toggleAreaSelect()">Highlight Area (Multi-Select)</button>
+                        <p id="area-select-status" style="font-size:0.75rem; color:var(--text-muted); margin:5px 0 0 0; display:none;">Click & drag on the map to draw a selection box.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SCENARIO LAB TAB -->
+            <div id="scenario" class="tab-content">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">PREDICTIVE SCENARIO TOOL</span>
+                    <a href="#" style="font-size:0.75rem; color:var(--text-muted); text-decoration:none;" onclick="resetScenario()">Reset</a>
+                </div>
+                <h3 style="margin: 5px 0 15px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Stress-test heat</h3>
+                <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:15px;">Combine regional warming, local mitigation, and the supplied model delta. All changes update the map instantly.</p>
+                
+                <div class="card" style="background: var(--scenario-green); border-color: var(--scenario-green);">
+                    <h4 style="margin:0; font-size:0.8rem; color:#a7f3d0;">Net portfolio adjustment</h4>
+                    <p id="net-adj" style="font-size:2.5rem; font-weight:700; margin:5px 0; color:#fff;">+0.0 °C</p>
+                    <span id="net-adj-desc" style="font-size:0.8rem; color:#a7f3d0;">Baseline conditions</span>
+                </div>
+                
+                <div class="card">
+                    <div class="slider-label"><span>Regional heat stress</span><span id="val-reg">+0.0 °C</span></div>
+                    <input type="range" id="slider-reg" min="-3" max="5" value="0" step="0.1" oninput="updateScenario()">
+                    <div class="slider-label" style="margin-top:15px;"><span>Cooling intervention</span><span id="val-cool">0.0 °C</span></div>
+                    <input type="range" id="slider-cool" min="-5" max="0" value="0" step="0.1" oninput="updateScenario()">
+                </div>
+
+                <div class="stats-row">
+                    <div class="stats-col"><span>Scenario high-risk</span><strong id="stat-risk">15,945</strong></div>
+                    <div class="stats-col"><span>Change from baseline</span><strong id="stat-change" style="color:var(--text-main);">0</strong></div>
+                    <div class="stats-col"><span>Scenario mean</span><strong id="stat-mean">37.7 °C</strong></div>
+                </div>
+
+                <div class="card" style="background: var(--bg-color);">
+                    <h3 style="margin: 0 0 5px 0; font-family:'Playfair Display', serif;">Test a proposed site</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-top:0; margin-bottom: 12px;">Click the map to estimate thermal resilience and coverage gap.</p>
+                    <button id="placement-btn" class="btn btn-proposed" onclick="togglePlacementMode()">Place proposed site</button>
+                    <p id="placement-status" style="font-size:0.8rem; color:var(--text-muted); margin-top:10px; margin-bottom:0;">Placement mode is off.</p>
+                </div>
+            </div>
+            
+            <!-- APPROVAL TAB -->
+            <div id="approval" class="tab-content">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">MUNICIPAL APPROVAL BOARDS</span>
+                        <h3 style="margin: 5px 0 10px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Candidate register</h3>
+                    </div>
+                    <span id="site-count-badge" class="badge" style="background:#1e293b; color:#fff; border:none; padding:6px 12px;">0 sites</span>
+                </div>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:15px; line-height: 1.4;">Scores guide review; they do not replace planning permission, engineering design, public-health analysis, or community consultation.</p>
+
+                <div class="card" style="margin-bottom: 15px;">
+                    <div class="slider-label" style="margin-bottom:8px;">
+                        <span style="font-weight: 700; color: var(--text-main);">Thermal resilience weight</span>
+                        <span id="weight-thermal-val" style="font-weight: 700; color: var(--text-main);">65%</span>
+                    </div>
+                    <input type="range" id="weight-slider" min="0" max="100" value="65" oninput="updateWeights(this.value)">
+                    <div class="slider-label" style="margin-top:10px; color:var(--text-muted); font-weight:400;">
+                        <span>Coverage-gap weight</span>
+                        <span id="weight-coverage-val" style="font-weight: 700; color: var(--text-main);">35%</span>
+                    </div>
+                </div>
+
+                <div id="candidate-list">
+                    <div id="empty-state" style="text-align:center; padding: 20px; border: 1px dashed var(--border-color); border-radius:8px; margin-bottom:15px;">
+                        <p style="font-size:1.5rem; margin:0; color:var(--text-muted);">+</p>
+                        <h4 style="margin:5px 0; color:var(--text-main);">No proposed sites</h4>
+                        <p style="font-size:0.8rem; color:var(--text-muted); margin:0;">Use Scenario lab → Place proposed site.</p>
+                    </div>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top: 15px;">
+                    <button class="btn" style="flex:1; background:transparent; border-color:var(--border-color); color:var(--text-main);">Export CSV</button>
+                    <button class="btn" style="flex:1; background:var(--scenario-green); border-color:var(--scenario-green);">Export board memo</button>
+                </div>
+            </div>
+
+            <!-- HANDOFF LIBRARY TAB -->
+            <div id="handoff" class="tab-content">
+                <span style="font-size:0.7rem; color:var(--accent); font-weight:bold; letter-spacing:1px;">POLICY & OPERATIONS</span>
+                <h3 style="margin: 5px 0 10px 0; font-family:'Playfair Display', serif; font-size: 1.8rem;">Handoff library</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 20px;">A traceable release for DBKL, MBSA, MBPJ, public health, civil defense, and technical custodians.</p>
+
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Executive summary</h4><p>Decisions, findings, KLCAP alignment</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Municipal briefing</h4><p>DBKL · MBSA · MBPJ run-of-show</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Approval board guide</h4><p>Scenario scoring and review gates</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>HVI & exposure dictionary</h4><p>Definitions, lineage, limitations</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Baseline LST note</h4><p>Raster provenance and registration</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+                <div class="doc-btn"><div style="display:flex; align-items:center;"><div class="doc-badge">MD</div><div class="doc-text"><h4>Usability protocol</h4><p>Workshop script and iteration log</p></div></div><span style="color:var(--text-muted);">↓</span></div>
+
+                <div style="margin-top: 30px; margin-bottom: 30px;">
+                    <span style="font-size:0.7rem; color:var(--text-muted); font-weight:bold; letter-spacing:1px;">OPERATIONAL DATA</span>
+                    <div style="background:rgba(245, 158, 11, 0.15); border-left:4px solid #f59e0b; padding:12px; margin-top:10px; margin-bottom: 15px; font-size:0.75rem; color:var(--text-main); border-radius: 0 4px 4px 0;">
+                        <span style="color:#fbbf24; font-weight:bold;">Controlled-access dataset.</span> Exact infrastructure coordinates are included. Do not republish until accountable owner approves.
+                    </div>
+                    <button class="btn" style="background:transparent; border-color:var(--border-color); color:var(--text-main);">Thermal exposure GeoJSON</button>
+                    <button class="btn" style="background:transparent; border-color:var(--border-color); color:var(--text-main);">Processed telecom CSV · controlled</button>
+                </div>
+
+                <div class="card" style="background: rgba(16, 185, 129, 0.1); border-color: rgba(16, 185, 129, 0.3);">
+                    <span style="font-size:0.7rem; color:var(--green); font-weight:bold; letter-spacing:1px;">CLOSE THE LOOP</span>
+                    <h3 style="margin: 5px 0 5px 0; font-family:'Playfair Display', serif; font-size:1.4rem;">Capture workshop feedback</h3>
+                    <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom: 15px;">Responses stay in this browser until exported.</p>
+                    <button class="btn" style="background:#1e293b; width:max-content; padding: 10px 20px; margin:0;" onclick="openFeedbackModal()">Open feedback form</button>
+                </div>
+            </div>
+        </aside>
+
+        <div id="map">
+            <div id="selection-canvas"></div>
+        </div>
+    </div>
+
+    <!-- INFO MODAL (Updated precisely to match your screenshot requirement) -->
+    <div id="info-modal" class="modal-overlay">
+        <div class="modal-box" style="background: #ffffff; color: #1e293b; width: 620px; border-radius: 16px; padding: 35px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); position: relative;">
+            <button class="close-btn" style="color: #64748b;" onclick="closeInfoModal()">×</button>
+            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 1.5px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 8px;">Read Before Use</span>
+            <h3 style="margin: 0 0 20px 0; font-family:'Playfair Display', serif; font-size: 1.7rem; color: #0f172a; line-height: 1.25;">What this dashboard can—and cannot—decide</h3>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">It supports heat screening and scenario comparison across the supplied telecom observations. Low, Medium, and High use the source breakpoints &lt;32 °C, 32–&lt;38 °C, and ≥38 °C.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">The smooth default surface is extracted from the supplied baseline LST layout and registered to the matching study extent. Exact numeric inspection still comes from the evidence grid and model records.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin-bottom: 15px;">The thermal exposure grid aggregates modelled land-surface temperature. It is not a full Heat Vulnerability Index because no demographic sensitivity or adaptive-capacity attributes were supplied.</p>
+            <p style="font-size: 0.9rem; color: #334155; line-height: 1.6; margin: 0;">Proposed-site scores combine a lower-temperature preference with distance to the nearest supplied telecom record. They are preliminary and must pass the approval gates.</p>
+        </div>
+    </div>
+
+    <!-- FEEDBACK MODAL (Exact match to your screenshot design) -->
+    <div id="feedback-modal" class="modal-overlay">
+        <div class="modal-box" style="background: #ffffff; color: #1e293b; width: 560px; border-radius: 16px; padding: 35px; box-shadow: 0 20px 40px rgba(0,0,0,0.4); position: relative;">
+            <button class="close-btn" style="color: #64748b;" onclick="closeFeedbackModal()">×</button>
+            <span style="font-size: 0.7rem; font-weight: 700; letter-spacing: 1.5px; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 8px;">ITERATION CYCLE</span>
+            <h3 style="margin: 0 0 20px 0; font-family:'Playfair Display', serif; font-size: 1.8rem; color: #0f172a;">Workshop feedback</h3>
+            
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Agency / team</label>
+            <input type="text" id="fb-agency" placeholder="e.g. DBKL Planning" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px;">
+
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Primary task</label>
+            <select id="fb-task" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px;">
+                <option>Heat monitoring</option>
+                <option>Telecom network planning</option>
+                <option>Municipal resilience evaluation</option>
+                <option>Policy & compliance</option>
+            </select>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                <label style="font-size:0.85rem; font-weight:600; color:#0f172a;">Ease of use (1–5)</label>
+                <span id="ease-val" style="font-weight:700; color:#2563eb; font-size:0.9rem;">4</span>
+            </div>
+            <input type="range" id="fb-ease" min="1" max="5" value="4" step="1" oninput="document.getElementById('ease-val').innerText=this.value" style="accent-color: #2563eb; margin-bottom:15px;">
+
+            <label style="display:block; font-size:0.85rem; font-weight:600; color:#0f172a; margin-bottom:6px;">Most important improvement</label>
+            <textarea id="fb-improvement" rows="3" placeholder="What should change before operational adoption?" style="background:#f8fafc; color:#0f172a; border:1px solid #cbd5e1; margin-bottom:15px; resize:vertical;"></textarea>
+
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:20px;">
+                <input type="checkbox" id="fb-check" style="width:16px; height:16px; accent-color:#2563eb; cursor:pointer;">
+                <label for="fb-check" style="font-size:0.8rem; color:#334155; cursor:pointer; font-weight:500;">I understand this record will be included in the exported iteration log.</label>
+            </div>
+
+            <button class="btn" style="background:#1e3a34; color:#ffffff; font-weight:bold; padding:12px; border-radius:8px; border:none; margin-bottom:20px;" onclick="submitFeedbackModal()">Save response</button>
+
+            <div style="display:flex; justify-content:space-between; align-items:center; border-top:1px solid #e2e8f0; padding-top:15px; font-size:0.85rem; color:#64748b;">
+                <span id="response-count-label">0 saved responses</span>
+                <a href="#" style="color:#0f172a; font-weight:bold; text-decoration:none;" onclick="exportJSONResponses()">Export JSON</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- GLOBAL VARIABLES ---
+        let allTowersList = []; 
+        let siteIdCounter = 1;
+        let proposedSites = {}; 
+        let currentThermalWeight = 0.65;
+        let currentCoverageWeight = 0.35;
+        let singleSelectState = { rangeCirc: null, waveCirc: null, active: false, r: 0, max: 0, animId: null };
+        let savedFeedbackList = [];
+
+        // Multi-Select state
+        let isAreaSelectMode = false;
+        let hasAreaSelection = false;
+        let multiSelectLayers = [];
+        let boxStartPoint = null;
+        let selectionBoxDiv = null;
+
+        // --- SIDEBAR DRAG RESIZE LOGIC ---
+        const sidebar = document.getElementById('sidebar-panel');
+        const resizer = document.getElementById('sidebar-resizer');
+        let isResizing = false;
+
+        resizer.addEventListener('mousedown', function(e) {
+            isResizing = true;
+            resizer.classList.add('resizing');
+            document.body.style.cursor = 'ew-resize';
+            e.preventDefault();
+        });
+
+        window.addEventListener('mousemove', function(e) {
+            if (!isResizing) return;
+            let newWidth = e.clientX;
+            if (newWidth < 250) newWidth = 250;
+            if (newWidth > 750) newWidth = 750;
+            sidebar.style.width = newWidth + 'px';
+            map.invalidateSize();
+        });
+
+        window.addEventListener('mouseup', function() {
+            if (isResizing) {
+                isResizing = false;
+                resizer.classList.remove('resizing');
+                document.body.style.cursor = 'default';
+                map.invalidateSize();
+            }
+        });
+
+        // --- TABS LOGIC ---
+        function openTab(evt, tabName) {
+            let tabcontent = document.getElementsByClassName("tab-content");
+            for (let i = 0; i < tabcontent.length; i++) tabcontent[i].classList.remove("active");
+            let tablinks = document.getElementsByClassName("tab-btn");
+            for (let i = 0; i < tablinks.length; i++) tablinks[i].classList.remove("active");
+            document.getElementById(tabName).classList.add("active");
+            evt.currentTarget.classList.add("active");
+        }
+
+        // --- FEEDBACK MODAL LOGIC ---
+        function openFeedbackModal() { document.getElementById('feedback-modal').style.display = 'flex'; }
+        function closeFeedbackModal() { document.getElementById('feedback-modal').style.display = 'none'; }
+        
+        function submitFeedbackModal() {
+            let agency = document.getElementById('fb-agency').value;
+            let task = document.getElementById('fb-task').value;
+            let ease = document.getElementById('fb-ease').value;
+            let improvement = document.getElementById('fb-improvement').value;
+            let confirmed = document.getElementById('fb-check').checked;
+
+            if(!agency.trim()) { alert('Please enter an agency or team name.'); return; }
+            if(!confirmed) { alert('Please check the confirmation box before saving response.'); return; }
+
+            savedFeedbackList.push({ agency, task, ease, improvement, timestamp: new Date().toISOString() });
+            document.getElementById('response-count-label').innerText = savedFeedbackList.length + (savedFeedbackList.length === 1 ? ' saved response' : ' saved responses');
+            
+            alert('Feedback saved successfully!');
+            document.getElementById('fb-agency').value = '';
+            document.getElementById('fb-improvement').value = '';
+            document.getElementById('fb-check').checked = false;
+            closeFeedbackModal();
+        }
+
+        function exportJSONResponses() {
+            if(savedFeedbackList.length === 0) { alert('No responses saved yet.'); return; }
+            let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(savedFeedbackList, null, 2));
+            let dlAnchor = document.createElement('a');
+            dlAnchor.setAttribute("href", dataStr);
+            dlAnchor.setAttribute("download", "workshop_feedback_log.json");
+            document.body.appendChild(dlAnchor);
+            dlAnchor.click();
+            dlAnchor.remove();
+        }
+
+        // --- SCENARIO MATH LOGIC ---
+        function updateScenario() {
+            let reg = parseFloat(document.getElementById('slider-reg').value);
+            let cool = parseFloat(document.getElementById('slider-cool').value);
+            let net = reg + cool;
+            
+            document.getElementById('val-reg').innerText = (reg > 0 ? '+' : '') + reg.toFixed(1) + ' °C';
+            document.getElementById('val-cool').innerText = (cool > 0 ? '+' : '') + cool.toFixed(1) + ' °C';
+            document.getElementById('net-adj').innerText = (net > 0 ? '+' : '') + net.toFixed(1) + ' °C';
+            document.getElementById('net-adj-desc').innerText = (net === 0) ? "Baseline conditions" : "Regional heat less cooling intervention";
+
+            let baseRisk = 15945; 
+            let baseMean = 37.7;  
+            let change = Math.round(net * 3113.33); 
+            
+            document.getElementById('stat-risk').innerText = (baseRisk + change).toLocaleString();
+            let changeEl = document.getElementById('stat-change');
+            changeEl.innerText = (change > 0 ? '+' : '') + change.toLocaleString();
+            changeEl.style.color = change > 0 ? 'var(--red)' : (change < 0 ? 'var(--green)' : 'var(--text-main)');
+            document.getElementById('stat-mean').innerText = (baseMean + net).toFixed(1) + ' °C';
+        }
+
+        function resetScenario() {
+            document.getElementById('slider-reg').value = 0;
+            document.getElementById('slider-cool').value = 0;
+            updateScenario();
+        }
+
+        // --- APPROVAL WEIGHT SLIDER LOGIC ---
+        function updateWeights(val) {
+            document.getElementById('weight-thermal-val').innerText = val + '%';
+            document.getElementById('weight-coverage-val').innerText = (100 - val) + '%';
+            currentThermalWeight = val / 100;
+            currentCoverageWeight = (100 - val) / 100;
+
+            for (let id in proposedSites) {
+                let site = proposedSites[id];
+                let finalScore = Math.round((site.baseThermalScore * currentThermalWeight) + (site.baseCoverageScore * currentCoverageWeight));
+                let scoreBadge = document.getElementById('score-badge-' + id);
+                let statusText = document.getElementById('status-text-' + id);
+                
+                if (scoreBadge && statusText) {
+                    scoreBadge.innerText = finalScore;
+                    if (finalScore >= 70) { scoreBadge.style.background = '#10b981'; statusText.innerText = 'Approved'; }
+                    else if (finalScore >= 40) { scoreBadge.style.background = '#92400e'; statusText.innerText = 'Conditional review'; }
+                    else { scoreBadge.style.background = '#991b1b'; statusText.innerText = 'Hold / redesign'; }
+                }
+            }
+        }
+
+        // --- MAP SETUP ---
+        const klangValleyBounds = [ [2.5, 101.0], [3.5, 102.0] ];
+        const map = L.map('map', { zoomControl: true, maxBounds: klangValleyBounds, maxBoundsViscosity: 1.0, minZoom: 9, attributionControl: false }).setView([3.11, 101.6], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, className: 'osm-basemap' }).addTo(map);
+
+        function updateMapZoomClass() {
+            const z = map.getZoom();
+            const mapEl = document.getElementById('map');
+            mapEl.classList.remove('map-zoom-dots', 'map-zoom-clusters', 'map-zoom-teardrops');
+            if (z <= 13) { mapEl.classList.add('map-zoom-dots'); }
+            else if (z === 14) { mapEl.classList.add('map-zoom-clusters'); } 
+            else { mapEl.classList.add('map-zoom-teardrops'); } 
+        }
+        map.on('zoomend', updateMapZoomClass);
+        updateMapZoomClass(); 
+
+        // HEATMAP DATA
+        const heatData = [];
+        for(let i=0; i<2500; i++) {
+            let lat = 2.9 + Math.random() * 0.35; let lng = 101.4 + Math.random() * 0.4;
+            let intensity = (lat > 3.1 && lat < 3.2 && lng > 101.6 && lng < 101.7) ? Math.random() * 1.5 : Math.random() * 0.7;
+            heatData.push([lat, lng, intensity]);
+        }
+        const heatLayer = L.heatLayer(heatData, { radius: 20, blur: 25, maxZoom: 13, max: 1.0, gradient: { 0.1: '#000080', 0.3: '#00ffff', 0.5: '#00ff00', 0.7: '#ffff00', 0.85: '#ff8800', 1.0: '#ff0000' } }).addTo(map);
+        setTimeout(() => { updateOpacity(72); }, 100);
+
+        // --- PERMANENT CLUSTERING ARCHITECTURE & CELL LAYER ---
+        const cellLayerGroup = L.markerClusterGroup({
+            maxClusterRadius: 25, 
+            disableClusteringAtZoom: 15, 
+            iconCreateFunction: function(cluster) {
+                let count = cluster.getChildCount();
+                let size = count < 100 ? 34 : (count < 500 ? 38 : 44);
+                let clusterTypeClass = count > 500 ? 'cluster-huge' : 'cluster-normal'; 
+                return L.divIcon({
+                    html: `<div class="cluster-master ${clusterTypeClass}"><div class="cluster-dot"></div><div class="cluster-circle" style="width:${size}px; height:${size}px;">${count}</div></div>`,
+                    className: 'custom-cluster-icon', iconSize: [size, size], iconAnchor: [size/2, size/2]
+                });
+            }
+        });
+        map.addLayer(cellLayerGroup);
+
+        // --- GENERATE TOWERS ---
+        const majorRoads = [ { lat: 3.11, lng: 101.6, slope: 0.3, len: 0.2 }, { lat: 3.15, lng: 101.65, slope: -0.1, len: 0.15 }, { lat: 3.05, lng: 101.58, slope: 1.5, len: 0.2 }, { lat: 3.0, lng: 101.45, slope: 0.8, len: 0.25 }, { lat: 3.2, lng: 101.6, slope: -0.5, len: 0.15 } ];
+        
+        for(let i = 0; i < 4500; i++) {
+            let lat, lng;
+            if (Math.random() > 0.25) {
+                let road = majorRoads[Math.floor(Math.random() * majorRoads.length)];
+                let progress = (Math.random() - 0.5) * road.len;
+                lat = road.lat + progress + ((Math.random() - 0.5) * 0.03); 
+                lng = road.lng + (progress * road.slope) + ((Math.random() - 0.5) * 0.03);
+            } else { lat = 2.9 + Math.random() * 0.35; lng = 101.4 + Math.random() * 0.4; }
+
+            let types = [ { type: 'GSM', letter: 'G', color: '#82c341' }, { type: 'UMTS', letter: 'U', color: '#e37b35' }, { type: 'LTE', letter: 'L', color: '#5a9bd4' } ];
+            let radio = types[Math.floor(Math.random() * 3)];
+            let cid = Math.floor(Math.random() * 1000000);
+            let coverageMeters = Math.floor(Math.random() * 1000) + 300;
+            let currentTemp = (33 + Math.random() * 6).toFixed(1);
+
+            allTowersList.push({ lat: lat, lng: lng, range: coverageMeters, color: radio.color });
+
+            let towerIcon = L.divIcon({ 
+                html: `<div class="pin-master"><div class="pin-dot"></div><div class="pin-teardrop" style="background:${radio.color};"><span>${radio.letter}</span></div></div>`,
+                className: 'custom-pin-icon', iconSize: [32, 32], iconAnchor: [16, 32]
+            });
+
+            let marker = L.marker([lat, lng], { icon: towerIcon });
+
+            marker.on('click', function() {
+                if (hasAreaSelection) clearAreaSelection(); 
+                clearSingleSelect(); 
+
+                // HIGH-VISIBILITY GLOWING RINGS
+                singleSelectState.rangeCirc = L.circle([lat, lng], { radius: coverageMeters, color: '#00f2fe', weight: 2.5, fillOpacity: 0.12, dashArray: '6, 6' }).addTo(map);
+                singleSelectState.waveCirc = L.circle([lat, lng], { radius: 0, color: '#00f2fe', weight: 3, fillOpacity: 0.35 }).addTo(map);
+                
+                singleSelectState.active = true;
+                singleSelectState.max = coverageMeters;
+                singleSelectState.r = 0;
+                animateSingleWave(); 
+            });
+
+            marker.bindPopup(`
+                <div style="font-family:'Inter', sans-serif; min-width: 160px;">
+                    <h4 style="margin:0 0 8px 0; border-bottom:1px solid #333; padding-bottom:4px; color:${radio.color}; font-size:1rem;">Cell ID: ${cid}</h4>
+                    <table style="width:100%; font-size:0.8rem; border-collapse: collapse;">
+                        <tr><td style="padding:3px 0; color:var(--text-muted);">Radio</td><td style="text-align:right; font-weight:bold;">${radio.type}</td></tr>
+                        <tr><td style="padding:3px 0; color:var(--text-muted);">Range</td><td style="text-align:right; font-weight:bold;">${coverageMeters} m</td></tr>
+                        <tr><td style="padding:3px 0; color:var(--text-muted);">Est. Temp</td><td style="text-align:right; font-weight:bold;">${currentTemp}°C</td></tr>
+                    </table>
+                </div>
+            `);
+
+            marker.on('popupclose', function() { clearSingleSelect(); });
+            cellLayerGroup.addLayer(marker);
+        }
+
+        // --- HIGH-VISIBILITY CONSTANT-SPEED WAVE ANIMATION ENGINE ---
+        function animateSingleWave() {
+            if (!singleSelectState.active) return;
+            singleSelectState.r += 14; 
+            if (singleSelectState.r > singleSelectState.max) {
+                singleSelectState.r = 0;
+            }
+            if(singleSelectState.waveCirc) {
+                singleSelectState.waveCirc.setRadius(singleSelectState.r);
+                let fade = 1 - (singleSelectState.r / singleSelectState.max);
+                singleSelectState.waveCirc.setStyle({ opacity: fade * 0.9 + 0.1, fillOpacity: fade * 0.35 });
+            }
+            singleSelectState.animId = requestAnimationFrame(animateSingleWave);
+        }
+
+        function clearSingleSelect() {
+            singleSelectState.active = false;
+            if (singleSelectState.animId) {
+                cancelAnimationFrame(singleSelectState.animId);
+                singleSelectState.animId = null;
+            }
+            if (singleSelectState.rangeCirc) { map.removeLayer(singleSelectState.rangeCirc); singleSelectState.rangeCirc = null; }
+            if (singleSelectState.waveCirc) { map.removeLayer(singleSelectState.waveCirc); singleSelectState.waveCirc = null; }
+        }
+
+        // =====================================================================
+        // MULTI-SELECT HIGHLIGHT AREA ENGINE (OUTERMOST HULL WITH DOTTED BORDER)
+        // =====================================================================
+        function toggleAreaSelect() {
+            let btn = document.getElementById('area-select-btn');
+            let status = document.getElementById('area-select-status');
+            let canvas = document.getElementById('selection-canvas');
+            
+            if (hasAreaSelection) { clearAreaSelection(); return; }
+            clearSingleSelect();
+
+            isAreaSelectMode = !isAreaSelectMode;
+            
+            if (isAreaSelectMode) {
+                btn.style.background = '#ff0055'; btn.style.color = '#fff'; btn.style.borderColor = '#ff0055'; btn.innerText = 'Cancel Highlighting';
+                status.style.display = 'block';
+                map.dragging.disable();
+                canvas.style.display = 'block';
+                canvas.addEventListener('mousedown', onCanvasMouseDown);
+            } else {
+                resetHighlightUI();
+            }
+        }
+
+        function resetHighlightUI() {
+            isAreaSelectMode = false;
+            let btn = document.getElementById('area-select-btn');
+            let status = document.getElementById('area-select-status');
+            let canvas = document.getElementById('selection-canvas');
+            
+            btn.style.background = 'rgba(0, 242, 254, 0.1)'; btn.style.color = 'var(--accent)'; btn.style.borderColor = 'var(--accent)'; btn.innerText = 'Highlight Area (Multi-Select)';
+            status.style.display = 'none';
+            map.dragging.enable();
+            canvas.style.display = 'none';
+            canvas.removeEventListener('mousedown', onCanvasMouseDown);
+            if (selectionBoxDiv) { selectionBoxDiv.remove(); selectionBoxDiv = null; }
+        }
+
+        function onCanvasMouseDown(e) {
+            boxStartPoint = { x: e.offsetX, y: e.offsetY };
+            
+            selectionBoxDiv = document.createElement('div');
+            selectionBoxDiv.style.position = 'absolute';
+            selectionBoxDiv.style.border = '2px dashed #00f2fe';
+            selectionBoxDiv.style.background = 'rgba(0, 242, 254, 0.15)';
+            selectionBoxDiv.style.left = boxStartPoint.x + 'px';
+            selectionBoxDiv.style.top = boxStartPoint.y + 'px';
+            document.getElementById('selection-canvas').appendChild(selectionBoxDiv);
+
+            window.addEventListener('mousemove', onCanvasMouseMove);
+            window.addEventListener('mouseup', onCanvasMouseUp);
+        }
+
+        function onCanvasMouseMove(e) {
+            if (!boxStartPoint || !selectionBoxDiv) return;
+            let currentX = e.offsetX;
+            let currentY = e.offsetY;
+
+            let left = Math.min(boxStartPoint.x, currentX);
+            let top = Math.min(boxStartPoint.y, currentY);
+            let width = Math.abs(currentX - boxStartPoint.x);
+            let height = Math.abs(currentY - boxStartPoint.y);
+
+            selectionBoxDiv.style.left = left + 'px';
+            selectionBoxDiv.style.top = top + 'px';
+            selectionBoxDiv.style.width = width + 'px';
+            selectionBoxDiv.style.height = height + 'px';
+        }
+
+        function onCanvasMouseUp(e) {
+            window.removeEventListener('mousemove', onCanvasMouseMove);
+            window.removeEventListener('mouseup', onCanvasMouseUp);
+
+            let canvas = document.getElementById('selection-canvas');
+            let rect = canvas.getBoundingClientRect();
+            let endX = e.clientX - rect.left;
+            let endY = e.clientY - rect.top;
+
+            let pt1 = map.containerPointToLatLng([Math.min(boxStartPoint.x, endX), Math.min(boxStartPoint.y, endY)]);
+            let pt2 = map.containerPointToLatLng([Math.max(boxStartPoint.x, endX), Math.max(boxStartPoint.y, endY)]);
+            let bounds = L.latLngBounds(pt1, pt2);
+
+            resetHighlightUI();
+            processAreaSelection(bounds);
+        }
+
+        function processAreaSelection(bounds) {
+            let selectedTowers = allTowersList.filter(t => bounds.contains([t.lat, t.lng]));
+            if (selectedTowers.length === 0) return;
+
+            hasAreaSelection = true;
+            
+            let btn = document.getElementById('area-select-btn');
+            btn.style.background = '#1e293b'; btn.style.color = '#fff'; btn.style.borderColor = '#ffffff'; btn.innerText = `Clear Pattern (${selectedTowers.length} cells)`;
+
+            let hullPoints = computeConvexHull(selectedTowers);
+            if (hullPoints.length > 2) {
+                let outerBorder = L.polygon(hullPoints, {
+                    color: '#00f2fe',
+                    weight: 4,
+                    dashArray: '8, 8',
+                    fill: true,
+                    fillColor: '#00f2fe',
+                    fillOpacity: 0.15
+                }).addTo(map);
+                multiSelectLayers.push(outerBorder);
+            }
+        }
+
+        function computeConvexHull(towers) {
+            let points = towers.map(t => [t.lat, t.lng]);
+            if (points.length <= 3) return points;
+
+            let start = points[0];
+            for (let p of points) {
+                if (p[1] < start[1] || (p[1] === start[1] && p[0] < start[0])) start = p;
+            }
+
+            let hull = [];
+            let current = start;
+            do {
+                hull.push(current);
+                let next = points[0];
+                for (let p of points) {
+                    if (next === current || crossProduct(current, next, p) < 0) {
+                        next = p;
+                    }
+                }
+                current = next;
+            } while (current !== start && hull.length < points.length);
+
+            return hull;
+        }
+
+        function crossProduct(a, b, c) {
+            return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+        }
+
+        function clearAreaSelection() {
+            hasAreaSelection = false;
+            multiSelectLayers.forEach(l => map.removeLayer(l));
+            multiSelectLayers = [];
+            
+            let btn = document.getElementById('area-select-btn');
+            btn.style.background = 'rgba(0, 242, 254, 0.1)'; btn.style.color = 'var(--accent)'; btn.style.borderColor = 'var(--accent)'; btn.innerText = 'Highlight Area (Multi-Select)';
+        }
+
+        // --- PROPOSED SITE PLACEMENT LOGIC ---
+        let isPlacementMode = false;
+        function togglePlacementMode() {
+            isPlacementMode = !isPlacementMode;
+            const btn = document.getElementById('placement-btn');
+            const status = document.getElementById('placement-status');
+            
+            if (isPlacementMode) {
+                btn.style.background = '#00f2fe'; btn.style.borderColor = '#00f2fe'; btn.style.color = '#000'; btn.innerText = 'Cancel placement';
+                status.innerHTML = '<span style="color:#00f2fe;">Placement mode is ON.</span> Click anywhere on the map.';
+                map.getContainer().style.cursor = 'crosshair';
+            } else {
+                btn.style.background = '#ff0055'; btn.style.borderColor = '#ff0055'; btn.style.color = '#fff'; btn.innerText = 'Place proposed site';
+                status.innerText = 'Placement mode is off.';
+                map.getContainer().style.cursor = '';
+            }
+        }
+
+        window.removeSite = function(id) {
+            let site = proposedSites[id];
+            if (site) {
+                site.waveState.active = false;
+                map.removeLayer(site.marker); map.removeLayer(site.boundsCircle); map.removeLayer(site.waveCircle);
+                delete proposedSites[id];
+                
+                let card = document.getElementById('card-' + id);
+                if (card) card.remove();
+                
+                let count = Object.keys(proposedSites).length;
+                document.getElementById('site-count-badge').innerText = count === 1 ? '1 site' : count + ' sites';
+                document.getElementById('empty-state').style.display = count === 0 ? 'block' : 'none';
+            }
+        }
+
+        map.on('click', function(e) {
+            if (!isPlacementMode) return;
+            
+            let id = 'site_' + siteIdCounter;
+            let propName = 'PROP-' + String(siteIdCounter).padStart(2, '0');
+            siteIdCounter++;
+
+            const lat = e.latlng.lat; const lng = e.latlng.lng;
+            const estimatedTemp = (31 + Math.random() * 8).toFixed(1);
+            let riskClass, hexColor;
+            if (estimatedTemp >= 38) { riskClass = 'Critical'; hexColor = 'var(--red)'; }
+            else if (estimatedTemp >= 34) { riskClass = 'Elevated'; hexColor = 'var(--yellow)'; }
+            else { riskClass = 'Nominal'; hexColor = 'var(--accent)'; }
+
+            let baseThermalScore = estimatedTemp >= 38 ? (Math.floor(Math.random() * 20) + 10) : (estimatedTemp >= 34 ? Math.floor(Math.random() * 30) + 40 : Math.floor(Math.random() * 20) + 80);
+            let baseCoverageScore = Math.floor(Math.random() * 60) + 40; 
+            let initialFinalScore = Math.round((baseThermalScore * currentThermalWeight) + (baseCoverageScore * currentCoverageWeight));
+            let initialStatus = initialFinalScore >= 70 ? 'Approved' : (initialFinalScore >= 40 ? 'Conditional review' : 'Hold / redesign');
+            let initialBadgeColor = initialFinalScore >= 70 ? '#10b981' : (initialFinalScore >= 40 ? '#92400e' : '#991b1b');
+            const coverageRadiusMeters = Math.floor(Math.random() * 300) + 400; 
+
+            let boundsCircle = L.circle([lat, lng], { radius: coverageRadiusMeters, color: hexColor, weight: 2, dashArray: '4, 6', fillOpacity: 0.05 }).addTo(map);
+            let waveCircle = L.circle([lat, lng], { radius: 0, color: hexColor, weight: 2.5, fillOpacity: 0.2 }).addTo(map);
+            const dotIcon = L.divIcon({ html: `<div style="width:14px; height:14px; background:${hexColor}; border:2.5px solid #fff; border-radius:50%; box-shadow: 0 0 15px ${hexColor};"></div>`, iconSize: [14, 14], iconAnchor: [7, 7] });
+            let marker = L.marker([lat, lng], { icon: dotIcon }).addTo(map);
+
+            marker.bindPopup(`
+                <div style="font-family:'Inter', sans-serif;">
+                    <h4 style="margin:0 0 5px 0; border-bottom:1px solid #333; padding-bottom:4px; color:${hexColor}">${propName} Profile</h4>
+                    <p style="margin:4px 0; font-size:0.85rem;"><b>Est. LST:</b> <span style="font-weight:bold;">${estimatedTemp}°C (${riskClass})</span></p>
+                    <p style="margin:4px 0; font-size:0.85rem;"><b>Coverage Radius:</b> ${coverageRadiusMeters} m</p>
+                    <button style="margin-top:8px; width:100%; padding:6px; background:var(--bg-color); color:var(--red); border:1px solid var(--border-color); border-radius:4px; cursor:pointer; font-weight:bold;" onclick="removeSite('${id}')">Remove Site</button>
+                </div>
+            `).openPopup();
+
+            let waveState = { r: 0, max: coverageRadiusMeters, circle: waveCircle, active: true };
+            proposedSites[id] = { marker, boundsCircle, waveCircle, waveState, baseThermalScore, baseCoverageScore };
+            
+            function animateWave() {
+                if (!waveState.active) return;
+                waveState.r += waveState.max / 80;
+                if (waveState.r > waveState.max) waveState.r = 0;
+                waveState.circle.setRadius(waveState.r);
+                let fade = 1 - (waveState.r / waveState.max);
+                waveState.circle.setStyle({ opacity: fade, fillOpacity: fade * 0.25 });
+                requestAnimationFrame(animateWave);
+            }
+            animateWave(); 
+            
+            let cardHTML = `
+                <div class="card" id="card-${id}" style="position:relative; margin-bottom:10px;">
+                    <div id="score-badge-${id}" style="position:absolute; top:15px; right:15px; background:${initialBadgeColor}; color:#fff; font-weight:bold; padding:4px 10px; border-radius:6px; font-size:1.1rem; transition: background 0.3s;">${initialFinalScore}</div>
+                    <h4 style="margin:0 0 2px 0; color:var(--text-main); font-size:1rem;">${propName}</h4>
+                    <p style="font-size:0.75rem; color:var(--text-muted); margin:0 0 12px 0;">${lat.toFixed(5)}, ${lng.toFixed(5)}</p>
+                    <div style="display:flex; gap:8px; margin-bottom:12px;">
+                        <div style="background:rgba(255,255,255,0.05); border:1px solid var(--border-color); padding:8px; border-radius:6px; flex:1;"><span style="font-size:0.65rem; color:var(--text-muted); display:block;">Scenario LST</span><span style="font-weight:bold; font-size:0.9rem; color:${hexColor};">${estimatedTemp} °C</span></div>
+                        <div style="background:rgba(255,255,255,0.05); border:1px solid var(--border-color); padding:8px; border-radius:6px; flex:1;"><span style="font-size:0.65rem; color:var(--text-muted); display:block;">Nearest record</span><span style="font-weight:bold; font-size:0.9rem;">${(Math.random()*0.5+0.1).toFixed(2)} km</span></div>
+                        <div style="background:rgba(255,255,255,0.05); border:1px solid var(--border-color); padding:8px; border-radius:6px; flex:1;"><span style="font-size:0.65rem; color:var(--text-muted); display:block;">Status</span><span id="status-text-${id}" style="font-weight:bold; font-size:0.8rem;">${initialStatus}</span></div>
+                    </div>
+                    <a href="#" style="color:var(--red); font-size:0.8rem; text-decoration:none; font-weight:bold;" onclick="removeSite('${id}')">Remove</a>
+                </div>
+            `;
+            document.getElementById('candidate-list').insertAdjacentHTML('beforeend', cardHTML);
+            
+            let count = Object.keys(proposedSites).length;
+            document.getElementById('site-count-badge').innerText = count === 1 ? '1 site' : count + ' sites';
+            document.getElementById('empty-state').style.display = 'none';
+            togglePlacementMode();
+        });
+
+        // --- MAP CONTROLS ---
+        function updateOpacity(val) { document.getElementById('opacity-val').innerText = val + '%'; const heatCanvas = document.querySelector('.leaflet-heatmap-layer'); if (heatCanvas) heatCanvas.style.opacity = val / 100; }
+        function toggleHeatLayer() { const checked = document.getElementById('chk-heat').checked; checked ? map.addLayer(heatLayer) : map.removeLayer(heatLayer); }
+        function toggleNodes() { const checked = document.getElementById('chk-cells').checked; checked ? map.addLayer(cellLayerGroup) : map.removeLayer(cellLayerGroup); }
+        
+        const locations = { klang_valley: { lat: 3.11, lng: 101.6, zoom: 11 }, dbkl: { lat: 3.1390, lng: 101.6869, zoom: 13 }, mbsa: { lat: 3.0738, lng: 101.5183, zoom: 13 }, mbpj: { lat: 3.1073, lng: 101.6067, zoom: 13 } };
+        function flyToState() { const selector = document.getElementById('state-selector'); const target = locations[selector ? selector.value : 'klang_valley']; map.flyTo([target.lat, target.lng], target.zoom, { animate: true, duration: 1.5 }); }
+
+        function openInfoModal() { document.getElementById('info-modal').style.display = 'flex'; }
+        function closeInfoModal() { document.getElementById('info-modal').style.display = 'none'; }
+        updateScenario();
+    </script>
+</body>
+</html>
